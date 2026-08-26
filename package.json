@@ -2,13 +2,15 @@
   "name": "faithtube",
   "version": "0.1.0",
   "private": true,
-  "description": "FaithTube — Every Video. Christ-Centered. A dedicated Christian video platform.",
+  "description": "FaithTube \u2014 Every Video. Christ-Centered. A dedicated Christian video platform.",
   "workspaces": [
     "packages/*",
     "apps/server",
     "apps/web"
   ],
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build:shared": "npm run build -w @faithtube/shared",
     "dev": "npm run build:shared && concurrently -n api,web -c cyan,magenta \"npm run dev -w @faithtube/server\" \"npm run dev -w @faithtube/web\"",
@@ -18,9 +20,10 @@
     "start": "npm run start -w @faithtube/server",
     "db:push": "npm run db:push -w @faithtube/server",
     "db:seed": "npm run db:seed -w @faithtube/server",
-    "setup": "npm install && npm run build:shared && npm run db:push && npm run db:seed",
+    "setup": "npm install && npm run bootstrap && npm run build:shared && npm run db:push && npm run db:seed",
     "typecheck": "npm run typecheck -w @faithtube/shared && npm run typecheck -w @faithtube/server && npm run typecheck -w @faithtube/web",
-    "test": "npm run test -w @faithtube/server"
+    "test": "npm run test -w @faithtube/server",
+    "bootstrap": "node scripts/bootstrap-env.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

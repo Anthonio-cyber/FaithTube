@@ -9,6 +9,15 @@ a content review before anyone can watch it.
 
 </div>
 
+<div align="center">
+
+<img src="docs/screenshots/01-home-signed-out.png" alt="The FaithTube home page" width="820">
+
+</div>
+
+> More screenshots, including the moderation centre and creator analytics, are in
+> [`docs/screenshots`](docs/screenshots).
+
 ---
 
 ## What this is
@@ -28,9 +37,13 @@ not configured, the interface says so plainly instead of pretending.
 ```bash
 git clone <this repository>
 cd FaithTube
-npm run setup      # install, build shared, create the database, seed it
+npm run setup      # install, write .env, build shared, create the database, seed it
 npm run dev        # API on :4000, web client on :5173
 ```
+
+`setup` writes a `.env` from `.env.example` with a freshly generated
+`JWT_SECRET` if you do not already have one, so a clean clone runs with no
+configuration at all.
 
 Open http://localhost:5173. The seed creates three accounts:
 

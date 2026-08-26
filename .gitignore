@@ -13,7 +13,6 @@ apps/web/dist/
 coverage/
 *.tsbuildinfo
 apps/server/prisma/prod.db
-docs/screenshots/
 apps/server/prisma/prisma/
 apps/mobile/.expo/
 apps/mobile/web-build/
