@@ -1,0 +1,12 @@
+{
+  "name": "FaithTube — Every Video. Christ-Centered.",
+  "short_name": "FaithTube",
+  "description": "A dedicated Christian video platform for sermons, Bible studies, worship, testimonies and Gospel-centred storytelling.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B1730",
+  "theme_color": "#0B1730",
+  "icons": [
+    { "src": "/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

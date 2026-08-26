@@ -1,0 +1,58 @@
+# Fly.io deployment — an alternative free host.
+#
+# Fly gives you https://<app-name>.fly.dev with TLS. Unlike Render, Fly offers a
+# small persistent volume on the free allowance, so local storage is viable for
+# a small library — though object storage is still the better choice.
+#
+#   fly launch --no-deploy      (creates the app, pick a name)
+#   fly volumes create faithtube_data --size 3
+#   fly secrets set DATABASE_URL=... JWT_SECRET=... APP_URL=https://<app>.fly.dev
+#   fly deploy
+
+app = "faithtube"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[build.args]
+  DATABASE_PROVIDER = "postgresql"
+
+[env]
+  NODE_ENV = "production"
+  SERVE_WEB = "true"
+  PORT = "4000"
+  COOKIE_SECURE = "true"
+  DATABASE_PROVIDER = "postgresql"
+  # With the volume mounted below, local storage survives restarts on Fly.
+  STORAGE_DRIVER = "local"
+  STORAGE_LOCAL_DIR = "/data/uploads"
+
+[[mounts]]
+  source = "faithtube_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 4000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 60
+    hard_limit = 120
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "40s"
+  method = "GET"
+  path = "/api/system/health"
+
+[[vm]]
+  # The free allowance. Video transcoding is CPU-hungry, so if uploads queue up
+  # for a long time, this is the first thing to scale.
+  size = "shared-cpu-1x"
+  memory = "512mb"

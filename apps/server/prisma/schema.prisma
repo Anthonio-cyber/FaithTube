@@ -1,0 +1,633 @@
+// FaithTube data model.
+//
+// Provider is sqlite so the platform runs with zero external services during
+// development. Every model here is Postgres-compatible: switch `provider` to
+// "postgresql" and point DATABASE_URL at Postgres for production. Enum-like
+// columns are stored as String and validated against the union types in
+// @faithtube/shared, which keeps the schema portable across both providers.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  emailVerified     Boolean   @default(false)
+  passwordHash      String?
+  googleId          String?   @unique
+  displayName       String
+  username          String    @unique
+  avatarUrl         String?
+  country           String?
+  dateOfBirth       DateTime?
+  role              String    @default("VIEWER")
+  bio               String?
+
+  // Agreements captured at sign-up. Timestamps are kept for audit purposes.
+  acceptedChristianContentAt DateTime?
+  acceptedGuidelinesAt       DateTime?
+  acceptedPrivacyAt          DateTime?
+
+  onboardingComplete Boolean  @default(false)
+  interests          String   @default("[]") // JSON array of category slugs
+  notificationPrefs  String   @default("{}") // JSON NotificationPreferences
+  showEmailPublicly  Boolean  @default(false)
+
+  suspendedUntil    DateTime?
+  suspensionReason  String?
+  strikeCount       Int       @default(0)
+  deletedAt         DateTime?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastSeenAt        DateTime  @default(now())
+
+  channel           Channel?
+  sessions          Session[]
+  comments          Comment[]
+  commentLikes      CommentLike[]
+  videoLikes        VideoLike[]
+  subscriptions     Subscription[]
+  playlists         Playlist[]
+  watchHistory      WatchHistory[]
+  savedVideos       SavedVideo[]
+  notifications     Notification[]        @relation("NotificationRecipient")
+  reportsFiled      Report[]              @relation("ReportReporter")
+  reportsResolved   Report[]              @relation("ReportResolver")
+  appeals           Appeal[]              @relation("AppealCreator")
+  appealsReviewed   Appeal[]              @relation("AppealReviewer")
+  premium           PremiumSubscription?
+  payments          Payment[]
+  auditLogs         AdminLog[]            @relation("AdminLogActor")
+  moderationActions ModerationAction[]
+  blocksMade        UserBlock[]           @relation("BlockOwner")
+  blockedBy         UserBlock[]           @relation("BlockTarget")
+  searchQueries     SearchQuery[]
+
+  @@index([role])
+  @@index([createdAt])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String   @unique
+  userAgent    String?
+  ipHash       String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Channel {
+  id            String   @id @default(cuid())
+  ownerId       String   @unique
+  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  handle        String   @unique
+  name          String
+  description   String   @default("")
+  avatarUrl     String?
+  bannerUrl     String?
+  accentColor   String?  // constrained to the platform palette by the API
+  location      String?
+  websiteUrl    String?
+  ministryAffiliation String?
+  featuredVideoId String?
+
+  subscriberCount Int    @default(0)
+  videoCount      Int    @default(0)
+  totalViews      Int    @default(0)
+
+  verifiedChristianCreator Boolean @default(false)
+  suspended       Boolean  @default(false)
+  suspendedReason String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  videos        Video[]
+  subscribers   Subscription[]
+  posts         CommunityPost[]
+  livestreams   Livestream[]
+  playlists     Playlist[]
+
+  @@index([subscriberCount])
+}
+
+model Video {
+  id             String    @id @default(cuid())
+  slug           String    @unique
+  channelId      String
+  channel        Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  title          String
+  description    String    @default("")
+  categorySlug   String
+  tags           String    @default("[]") // JSON array
+  language       String    @default("en")
+
+  storageKey     String?   // original upload
+  thumbnailUrl   String?
+  previewUrl     String?
+  durationSeconds Int      @default(0)
+  sizeBytes      Int       @default(0)
+  width          Int       @default(0)
+  height         Int       @default(0)
+  sources        String    @default("[]") // JSON VideoSource[]
+  captionsUrl    String?
+
+  status         String    @default("UPLOADING")
+  visibility     String    @default("PRIVATE")
+  scheduledFor   DateTime?
+  publishedAt    DateTime?
+
+  isShort        Boolean   @default(false)
+  isLive         Boolean   @default(false)
+  madeForKids    Boolean   @default(false)
+  ageRestricted  Boolean   @default(false)
+  premiumOnly    Boolean   @default(false)
+  commentsEnabled Boolean  @default(true)
+
+  christianContentVerified Boolean @default(false)
+  contentWarnings String   @default("[]") // JSON array
+  scriptureRefs   String   @default("[]") // JSON array
+  chapters        String   @default("[]") // JSON Chapter[]
+  transcript      String?                 // JSON TranscriptCue[]
+  transcriptText  String?                 // flattened, used for search
+
+  viewCount      Int       @default(0)
+  likeCount      Int       @default(0)
+  dislikeCount   Int       @default(0)
+  commentCount   Int       @default(0)
+  totalWatchSeconds Int    @default(0)
+
+  removedAt      DateTime?
+  removedReason  String?
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  processingJobs VideoProcessingJob[]
+  moderations    VideoModerationResult[]
+  comments       Comment[]
+  likes          VideoLike[]
+  playlistItems  PlaylistVideo[]
+  watchHistory   WatchHistory[]
+  savedBy        SavedVideo[]
+  reports        Report[]
+  appeals        Appeal[]
+  livestream     Livestream?
+  moderationActions ModerationAction[]
+
+  @@index([status, visibility, publishedAt])
+  @@index([channelId])
+  @@index([categorySlug])
+  @@index([isShort])
+}
+
+model VideoProcessingJob {
+  id          String    @id @default(cuid())
+  videoId     String
+  video       Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  /// PROBE | TRANSCODE | THUMBNAIL | TRANSCRIBE | MODERATE | PUBLISH
+  kind        String
+  status      String    @default("QUEUED") // QUEUED | RUNNING | DONE | FAILED
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3)
+  progress    Int       @default(0)
+  message     String?
+  error       String?
+  payload     String    @default("{}")
+  runAfter    DateTime  @default(now())
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([status, runAfter])
+  @@index([videoId])
+}
+
+model VideoModerationResult {
+  id             String   @id @default(cuid())
+  videoId        String
+  video          Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  decision       String
+  scores         String   @default("{}") // JSON ModerationScores
+  confidence     Float    @default(0)
+  findings       String   @default("[]") // JSON ModerationFinding[]
+  internalNotes  String   @default("")
+  creatorMessage String   @default("")
+  rejectionReason String?
+  provider       String
+  model          String?
+  ageRestricted  Boolean  @default(false)
+  contentWarnings String  @default("[]")
+  /// Set when a human overrode the automated decision.
+  overriddenBy   String?
+  createdAt      DateTime @default(now())
+
+  @@index([videoId])
+  @@index([decision])
+}
+
+model ModerationAction {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  videoId    String?
+  video      Video?   @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  targetType String   // VIDEO | COMMENT | USER | CHANNEL | LIVESTREAM
+  targetId   String
+  action     String   // APPROVE | REJECT | RESTRICT | REQUEST_CHANGES | REMOVE | SUSPEND | REINSTATE
+  reason     String?
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([actorId])
+}
+
+model Comment {
+  id         String    @id @default(cuid())
+  videoId    String
+  video      Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parentId   String?
+  parent     Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies    Comment[] @relation("CommentThread")
+
+  body       String
+  likeCount  Int       @default(0)
+  replyCount Int       @default(0)
+  pinned     Boolean   @default(false)
+  heartedByCreator Boolean @default(false)
+
+  status     String    @default("VISIBLE") // VISIBLE | HELD_FOR_REVIEW | REMOVED
+  moderationLabel String?                  // spam | harassment | scam | explicit | hate
+  moderationScore Float  @default(0)
+  removedReason String?
+
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  editedAt   DateTime?
+
+  likes      CommentLike[]
+  reports    Report[]
+
+  @@index([videoId, status, createdAt])
+  @@index([parentId])
+}
+
+model CommentLike {
+  id        String   @id @default(cuid())
+  commentId String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([commentId, userId])
+}
+
+model VideoLike {
+  id        String   @id @default(cuid())
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  value     Int      @default(1) // 1 like, -1 dislike
+  createdAt DateTime @default(now())
+
+  @@unique([videoId, userId])
+  @@index([userId])
+}
+
+model Subscription {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channelId     String
+  channel       Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  notifyUploads Boolean  @default(true)
+  notifyLive    Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@unique([userId, channelId])
+  @@index([channelId])
+}
+
+model Playlist {
+  id          String   @id @default(cuid())
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  channelId   String?
+  channel     Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  title       String
+  description String   @default("")
+  visibility  String   @default("PRIVATE") // PUBLIC | UNLISTED | PRIVATE
+  thumbnailUrl String?
+  /// WATCH_LATER and LIKED are system playlists the UI treats specially.
+  systemKey   String?
+  itemCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items       PlaylistVideo[]
+
+  @@unique([ownerId, systemKey])
+  @@index([ownerId])
+}
+
+model PlaylistVideo {
+  id         String   @id @default(cuid())
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  videoId    String
+  video      Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  position   Int      @default(0)
+  addedAt    DateTime @default(now())
+
+  @@unique([playlistId, videoId])
+  @@index([playlistId, position])
+}
+
+model WatchHistory {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoId        String
+  video          Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  progressSeconds Int     @default(0)
+  completed      Boolean  @default(false)
+  watchSeconds   Int      @default(0)
+  lastWatchedAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, videoId])
+  @@index([userId, lastWatchedAt])
+}
+
+model SavedVideo {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, videoId])
+}
+
+model SearchQuery {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  query     String
+  resultCount Int    @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  type        String   // NEW_UPLOAD | NEW_SUBSCRIBER | COMMENT | REPLY | LIVE | PREMIUM | MODERATION | ANNOUNCEMENT
+  title       String
+  body        String   @default("")
+  linkUrl     String?
+  imageUrl    String?
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, readAt, createdAt])
+}
+
+model Report {
+  id           String   @id @default(cuid())
+  reporterId   String?
+  reporter     User?    @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  videoId      String?
+  video        Video?   @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  commentId    String?
+  comment      Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  targetType   String   // VIDEO | COMMENT | CHANNEL | USER | LIVESTREAM
+  targetId     String
+  reason       String
+  details      String   @default("")
+  status       String   @default("OPEN")
+  resolution   String?
+  resolvedById String?
+  resolvedBy   User?    @relation("ReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  resolvedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId])
+}
+
+model Appeal {
+  id           String   @id @default(cuid())
+  videoId      String
+  video        Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  creatorId    String
+  creator      User     @relation("AppealCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  message      String
+  status       String   @default("PENDING")
+  decisionNote String?
+  reviewedById String?
+  reviewedBy   User?    @relation("AppealReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt   DateTime?
+  createdAt    DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([videoId])
+}
+
+model PremiumSubscription {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status               String    @default("ACTIVE")
+  planId               String    @default("premium-monthly")
+  provider             String    @default("stripe") // stripe | manual
+  providerCustomerId   String?
+  providerSubscriptionId String?  @unique
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+  startedAt            DateTime  @default(now())
+  canceledAt           DateTime?
+  updatedAt            DateTime  @updatedAt
+
+  @@index([status])
+}
+
+model Payment {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String   @default("stripe")
+  providerPaymentId String?  @unique
+  amountMinor       Int
+  currency          String   @default("USD")
+  status            String   @default("PENDING") // PENDING | SUCCEEDED | FAILED | REFUNDED
+  purpose           String   @default("premium") // premium | donation
+  description       String?
+  createdAt         DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model CommunityPost {
+  id          String   @id @default(cuid())
+  channelId   String
+  channel     Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  type        String   @default("TEXT") // TEXT | IMAGE | POLL | ANNOUNCEMENT | VERSE | QUESTION
+  body        String
+  imageUrl    String?
+  scriptureRef String?
+  pollOptions String   @default("[]") // JSON [{id,label,votes}]
+  status      String   @default("VISIBLE") // VISIBLE | HELD_FOR_REVIEW | REMOVED
+  moderationNote String?
+  likeCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  votes       CommunityPollVote[]
+
+  @@index([channelId, createdAt])
+}
+
+model CommunityPollVote {
+  id       String   @id @default(cuid())
+  postId   String
+  post     CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId   String
+  optionId String
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+}
+
+model Livestream {
+  id            String    @id @default(cuid())
+  channelId     String
+  channel       Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  videoId       String?   @unique
+  video         Video?    @relation(fields: [videoId], references: [id], onDelete: SetNull)
+  title         String
+  description   String    @default("")
+  categorySlug  String    @default("worship")
+  thumbnailUrl  String?
+  streamKeyHash String    @unique
+  ingestUrl     String?
+  playbackUrl   String?
+  status        String    @default("SCHEDULED") // SCHEDULED | LIVE | ENDED | BLOCKED
+  moderationStatus String @default("APPROVED")  // APPROVED | WATCHLIST | BLOCKED
+  scheduledFor  DateTime?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  peakViewers   Int       @default(0)
+  currentViewers Int      @default(0)
+  chatEnabled   Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  messages      LiveChatMessage[]
+
+  @@index([status, scheduledFor])
+}
+
+model LiveChatMessage {
+  id           String   @id @default(cuid())
+  livestreamId String
+  livestream   Livestream @relation(fields: [livestreamId], references: [id], onDelete: Cascade)
+  authorId     String
+  body         String
+  status       String   @default("VISIBLE")
+  moderationLabel String?
+  createdAt    DateTime @default(now())
+
+  @@index([livestreamId, createdAt])
+}
+
+model UserBlock {
+  id        String   @id @default(cuid())
+  ownerId   String
+  owner     User     @relation("BlockOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  targetId  String
+  target    User     @relation("BlockTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([ownerId, targetId])
+}
+
+model Category {
+  slug        String   @id
+  name        String
+  description String   @default("")
+  blurb       String   @default("")
+  keywords    String   @default("[]")
+  featured    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+}
+
+model FeaturedItem {
+  id          String   @id @default(cuid())
+  placement   String   // HERO | BANNER | RAIL
+  videoId     String?
+  title       String?
+  subtitle    String?
+  imageUrl    String?
+  linkUrl     String?
+  sortOrder   Int      @default(0)
+  active      Boolean  @default(true)
+  startsAt    DateTime?
+  endsAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([placement, active])
+}
+
+model PlatformSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model AdminLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actor      User?    @relation("AdminLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+  action     String
+  targetType String?
+  targetId   String?
+  summary    String   @default("")
+  metadata   String   @default("{}")
+  ipHash     String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([action])
+}
+
+model RateLimitCounter {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}

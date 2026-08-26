@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+**/dist
+apps/server/var
+apps/server/prisma/*.db
+apps/mobile
+.git
+.env
+.env.*
+*.log
+docs/screenshots

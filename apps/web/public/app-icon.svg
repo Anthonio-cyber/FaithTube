@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="FaithTube app icon">
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#152444"/>
+      <stop offset="1" stop-color="#060D1D"/>
+    </linearGradient>
+    <linearGradient id="ray" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#F0CE8E" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#F0CE8E" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#ground)"/>
+  <path d="M256 40 168 240h176L256 40Z" fill="url(#ray)"/>
+  <path d="M256 64v76M220 100h72" stroke="#D8A24A" stroke-width="20" stroke-linecap="round"/>
+  <path d="M144 420V264a112 112 0 0 1 224 0v156a16 16 0 0 1-16 16H160a16 16 0 0 1-16-16Z"
+        fill="none" stroke="#D8A24A" stroke-width="26" stroke-linejoin="round"/>
+  <path d="M224 240 328 304l-104 64Z" fill="#FBF7EF"/>
+</svg>

@@ -1,0 +1,73 @@
+# Render blueprint — deploys FaithTube as one free web service.
+#
+# Render's free plan gives you a domain at https://<service-name>.onrender.com
+# with TLS included. Free services sleep after ~15 minutes idle and take a few
+# seconds to wake, which is fine for a launch but worth knowing.
+#
+# Two values must be set by hand in the Render dashboard after the first deploy:
+#   DATABASE_URL  — a free Postgres connection string (Neon is recommended; see
+#                   DEPLOYMENT.md for why Render's own free Postgres expires)
+#   JWT_SECRET    — Render can generate this for you, see generateValue below
+services:
+  - type: web
+    name: faithtube
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/system/health
+    autoDeploy: true
+    # Free instances have an ephemeral filesystem: anything written to disk is
+    # lost on restart. Uploaded video MUST go to object storage — set
+    # STORAGE_DRIVER=s3 and the S3_* keys below before accepting real uploads.
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVE_WEB
+        value: "true"
+      - key: DATABASE_PROVIDER
+        value: postgresql
+      - key: JWT_SECRET
+        generateValue: true
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: APP_URL
+        sync: false        # set to https://<your-service>.onrender.com
+      - key: API_URL
+        sync: false        # same value as APP_URL in single-service mode
+      - key: DATABASE_URL
+        sync: false
+      - key: SEED_ADMIN_EMAIL
+        sync: false
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      # Object storage — required for uploads to survive a restart.
+      - key: STORAGE_DRIVER
+        value: s3
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        value: auto        # "auto" is correct for Cloudflare R2
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: CDN_BASE_URL
+        sync: false        # your R2 public bucket URL
+      # Optional integrations. The platform runs correctly without every one of
+      # these; each unset key simply shows as "not configured" in the admin area.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false

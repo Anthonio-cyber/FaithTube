@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+*.log
+apps/server/prisma/*.db
+apps/server/prisma/*.db-journal
+apps/server/var/
+apps/web/dist/
+.DS_Store
+.expo/
+coverage/
+*.tsbuildinfo
+apps/server/prisma/prod.db
+docs/screenshots/
+apps/server/prisma/prisma/
