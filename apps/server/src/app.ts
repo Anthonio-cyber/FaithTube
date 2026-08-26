@@ -69,9 +69,32 @@ export function createApp() {
     }),
   );
   app.use(compression());
+  /**
+   * CORS.
+   *
+   * In single-service mode the client is same-origin and none of this applies.
+   * Otherwise the allowlist is APP_URL plus anything named in
+   * CORS_EXTRA_ORIGINS, with the usual local development ports added outside
+   * production. Requests with no Origin — native mobile, curl, server-to-server
+   * — are allowed through, because CORS is a browser control and blocking them
+   * would break the mobile client for no security gain.
+   */
+  const allowedOrigins = new Set(
+    [
+      env.APP_URL,
+      ...env.CORS_EXTRA_ORIGINS.split(',').map((value) => value.trim()),
+      ...(isProd ? [] : ['http://localhost:5173', 'http://localhost:8081', 'http://localhost:8082', 'http://localhost:19006']),
+    ].filter(Boolean),
+  );
+
   app.use(
     cors({
-      origin: [env.APP_URL, 'http://localhost:5173', 'http://localhost:8081'],
+      origin(origin, callback) {
+        // Reject by withholding the header rather than by throwing: the browser
+        // then blocks the request itself, and a disallowed origin does not turn
+        // into a 500 in the server's error log.
+        callback(null, !origin || allowedOrigins.has(origin));
+      },
       credentials: true,
     }),
   );

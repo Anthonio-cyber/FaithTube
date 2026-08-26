@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "FaithTube",
+    "slug": "faithtube",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "faithtube",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B1730"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.faithtube.client",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "audio"
+        ],
+        "NSPhotoLibraryUsageDescription": "FaithTube needs access to your library so you can upload videos and choose a thumbnail.",
+        "NSCameraUsageDescription": "FaithTube needs the camera so you can record a video to upload."
+      }
+    },
+    "android": {
+      "package": "app.faithtube.client",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0B1730"
+      },
+      "permissions": [
+        "READ_MEDIA_VIDEO",
+        "READ_MEDIA_IMAGES",
+        "CAMERA"
+      ]
+    },
+    "extra": {
+      "apiUrl": "http://localhost:4000"
+    },
+    "plugins": [
+      "expo-secure-store"
+    ],
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

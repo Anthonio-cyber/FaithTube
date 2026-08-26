@@ -59,6 +59,13 @@ const schema = z.object({
    * Single-service mode: the API also serves the built web client, so one
    * process on one free subdomain hosts the whole platform with no CORS.
    */
+  /**
+   * Extra browser origins allowed to call the API, comma-separated. Same-origin
+   * deployments (SERVE_WEB=true) need none of this; it exists for a separately
+   * hosted web client or an Expo web build on a non-default port.
+   */
+  CORS_EXTRA_ORIGINS: z.string().default(''),
+
   SERVE_WEB: z.coerce.boolean().default(false),
   WEB_DIST_DIR: z.string().default('../web/dist'),
 
