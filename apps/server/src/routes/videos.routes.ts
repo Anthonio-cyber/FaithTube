@@ -13,6 +13,7 @@ import { parseJson, stringifyJson } from '../lib/json.js';
 import { attachAuth, auth, requireAuth } from '../middleware/auth.js';
 import { uploadLimiter, writeLimiter } from '../middleware/rateLimit.js';
 import { validateBody, validateQuery, query } from '../middleware/validate.js';
+import { booleanish, optionalBooleanish } from '../lib/zod.js';
 import { mediaKey, storage } from '../services/storage.service.js';
 import { enqueuePipeline, pipelineStatus, publishVideo } from '../services/pipeline.service.js';
 import { checkThumbnailMetadata } from '../ai/thumbnailSafety.js';
@@ -59,9 +60,9 @@ const uploadMetadataSchema = z.object({
   tags: z.string().optional(),
   visibility: z.enum(VISIBILITIES).default('PRIVATE'),
   scheduledFor: z.string().datetime().optional(),
-  madeForKids: z.coerce.boolean().default(false),
-  isShort: z.coerce.boolean().default(false),
-  premiumOnly: z.coerce.boolean().default(false),
+  madeForKids: booleanish(false),
+  isShort: booleanish(false),
+  premiumOnly: booleanish(false),
   playlistId: z.string().optional(),
   language: z.string().max(10).default('en'),
 });
@@ -500,7 +501,7 @@ videosRouter.post(
 const listQuerySchema = z.object({
   categorySlug: z.string().optional(),
   channelId: z.string().optional(),
-  isShort: z.coerce.boolean().optional(),
+  isShort: optionalBooleanish(),
   cursor: z.string().optional(),
   limit: z.coerce.number().min(1).max(50).default(24),
 });

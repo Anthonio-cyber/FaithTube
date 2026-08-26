@@ -6,6 +6,26 @@ import { z } from 'zod';
  * back to a documented local implementation and the /api/system/integrations
  * endpoint reports the service as "not configured" — nothing is faked as working.
  */
+/**
+ * Parses a boolean environment variable.
+ *
+ * z.coerce.boolean() cannot be used here: it applies JavaScript truthiness, so
+ * the string "false" becomes true and every flag is stuck on. This accepts the
+ * spellings people actually write in a .env file or a host's dashboard.
+ */
+const boolFromEnv = (defaultValue: boolean) =>
+  z
+    .union([z.boolean(), z.string()])
+    .default(defaultValue)
+    .transform((value, ctx) => {
+      if (typeof value === 'boolean') return value;
+      const normalized = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+      if (['false', '0', 'no', 'off', ''].includes(normalized)) return false;
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Expected a boolean, received "${value}"` });
+      return z.NEVER;
+    });
+
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().default(4000),
@@ -16,7 +36,13 @@ const schema = z.object({
   JWT_SECRET: z.string().default('dev-only-insecure-secret-change-me'),
   SESSION_TTL_DAYS: z.coerce.number().default(30),
   COOKIE_DOMAIN: z.string().optional(),
-  COOKIE_SECURE: z.coerce.boolean().default(false),
+  COOKIE_SECURE: boolFromEnv(false),
+  /**
+   * "lax" suits a same-origin deployment. A client on a different domain — a
+   * Vercel-hosted front end talking to an API elsewhere — needs "none", which
+   * browsers only honour on a secure cookie.
+   */
+  COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
 
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
@@ -46,7 +72,7 @@ const schema = z.object({
 
   FFMPEG_PATH: z.string().default('ffmpeg'),
   FFPROBE_PATH: z.string().default('ffprobe'),
-  TRANSCODE_ENABLED: z.coerce.boolean().default(true),
+  TRANSCODE_ENABLED: boolFromEnv(true),
 
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
@@ -66,13 +92,17 @@ const schema = z.object({
    */
   CORS_EXTRA_ORIGINS: z.string().default(''),
 
-  SERVE_WEB: z.coerce.boolean().default(false),
+  SERVE_WEB: boolFromEnv(false),
   WEB_DIST_DIR: z.string().default('../web/dist'),
 
-  WORKER_ENABLED: z.coerce.boolean().default(true),
+  WORKER_ENABLED: boolFromEnv(true),
+  /** Shared secret for the cron-driven processing endpoint. Unset = disabled. */
+  CRON_SECRET: z.string().optional(),
+  /** Jobs per cron invocation. Keep it low enough to fit a function timeout. */
+  CRON_MAX_JOBS: z.coerce.number().default(3),
   WORKER_POLL_MS: z.coerce.number().default(1500),
 
-  RATE_LIMIT_ENABLED: z.coerce.boolean().default(true),
+  RATE_LIMIT_ENABLED: boolFromEnv(true),
   SEED_ADMIN_EMAIL: z.string().default('admin@faithtube.example'),
   SEED_ADMIN_PASSWORD: z.string().default('ChangeMe!2024'),
 });
@@ -89,6 +119,13 @@ export const isTest = env.NODE_ENV === 'test';
 
 if (isProd && env.JWT_SECRET === 'dev-only-insecure-secret-change-me') {
   console.error('FATAL: JWT_SECRET must be set to a strong random value in production.');
+  process.exit(1);
+}
+
+// Browsers silently drop a SameSite=None cookie that is not Secure, which would
+// look like "sign-in does nothing" rather than an error. Fail loudly instead.
+if (env.COOKIE_SAMESITE === 'none' && !env.COOKIE_SECURE) {
+  console.error('FATAL: COOKIE_SAMESITE=none requires COOKIE_SECURE=true, or browsers will discard the session cookie.');
   process.exit(1);
 }
 

@@ -45,6 +45,26 @@ async function tick() {
   }
 }
 
+/**
+ * Runs one pass of the queue and reports what it did.
+ *
+ * The in-process worker is the normal path. This exists for hosts that cannot
+ * keep a process alive — a serverless deployment drives the queue by calling
+ * the cron endpoint instead. `maxJobs` is bounded so a single invocation
+ * finishes inside a function timeout.
+ */
+export async function runWorkerPass(maxJobs = 3): Promise<{ processed: number; published: number }> {
+  let processed = 0;
+  for (let i = 0; i < maxJobs; i += 1) {
+    const jobId = await claimNextJob();
+    if (!jobId) break;
+    await runJob(jobId);
+    processed += 1;
+  }
+  const published = await publishScheduledVideos();
+  return { processed, published };
+}
+
 export function startWorker() {
   if (!env.WORKER_ENABLED) {
     log.warn('Background worker disabled (WORKER_ENABLED=false). Uploads will queue but never process.');

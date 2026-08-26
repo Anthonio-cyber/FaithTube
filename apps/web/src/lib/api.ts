@@ -27,7 +27,18 @@ export class ApiError extends Error {
   }
 }
 
-const BASE = '/api';
+/**
+ * Where the API lives.
+ *
+ * Empty (the default) means same-origin: the client is served by the API itself,
+ * or a host rewrite proxies /api to it. Set VITE_API_URL at build time to point
+ * a separately hosted client — a Vercel deployment, say — at an API elsewhere.
+ *
+ * Note that a cross-origin API must also send SameSite=None cookies and list
+ * this client's origin in CORS_EXTRA_ORIGINS, or the session will not stick.
+ */
+const API_ORIGIN = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+const BASE = `${API_ORIGIN}/api`;
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
@@ -37,7 +48,7 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { body, query, headers, ...rest } = options;
 
-  const url = new URL(`${BASE}${path}`, window.location.origin);
+  const url = new URL(`${BASE}${path}`, API_ORIGIN || window.location.origin);
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
   }

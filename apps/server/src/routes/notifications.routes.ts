@@ -5,6 +5,7 @@ import { prisma } from '../db/client.js';
 import { handler } from '../lib/async.js';
 import { auth, requireAuth } from '../middleware/auth.js';
 import { validateBody, validateQuery, query } from '../middleware/validate.js';
+import { booleanish } from '../lib/zod.js';
 import { parseJson, stringifyJson } from '../lib/json.js';
 
 export const notificationsRouter = Router();
@@ -14,7 +15,7 @@ notificationsRouter.get(
   requireAuth,
   validateQuery(
     z.object({
-      unreadOnly: z.coerce.boolean().default(false),
+      unreadOnly: booleanish(false),
       limit: z.coerce.number().min(1).max(100).default(30),
       cursor: z.string().optional(),
     }),

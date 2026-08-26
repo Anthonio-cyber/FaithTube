@@ -8,6 +8,9 @@ import { moderationProvider } from '../ai/index.js';
 import { transcriptionProvider } from '../ai/transcription.js';
 import { currentPlan } from '../services/stripe.service.js';
 import { PUBLISHED_VIDEO_WHERE } from '../services/serialize.js';
+import { runWorkerPass } from '../workers/videoWorker.js';
+import { timingSafeEqual } from '../lib/crypto.js';
+import { forbidden, notConfigured } from '../lib/errors.js';
 
 export const systemRouter = Router();
 
@@ -82,5 +85,34 @@ systemRouter.get(
       members,
       watchHours: Math.round((watchSeconds._sum.totalWatchSeconds ?? 0) / 3600),
     });
+  }),
+);
+
+/**
+ * Drives one pass of the processing queue.
+ *
+ * Only needed where the platform cannot keep a background process alive. Set
+ * CRON_SECRET and call this on a schedule; Vercel Cron sends the secret as a
+ * Bearer token automatically. When WORKER_ENABLED is true the in-process worker
+ * is already doing this, and calling it here is harmless but redundant.
+ */
+systemRouter.all(
+  '/cron/process',
+  handler(async (req, res) => {
+    if (!env.CRON_SECRET) {
+      throw notConfigured(
+        'Scheduled processing',
+        'Set CRON_SECRET on the API, then call this endpoint on a schedule with "Authorization: Bearer <CRON_SECRET>".',
+      );
+    }
+
+    const header = req.headers.authorization ?? '';
+    const provided = header.startsWith('Bearer ') ? header.slice(7) : String(req.query.secret ?? '');
+    if (!provided || !timingSafeEqual(provided, env.CRON_SECRET)) {
+      throw forbidden('Invalid cron secret.');
+    }
+
+    const result = await runWorkerPass(env.CRON_MAX_JOBS);
+    res.json({ ok: true, ...result, workerAlsoRunningInProcess: env.WORKER_ENABLED });
   }),
 );

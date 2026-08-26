@@ -12,6 +12,7 @@ Every free host below gives you an HTTPS domain at no cost:
 | **Render** | `https://<name>.onrender.com` | Easiest. Sleeps after ~15 min idle, wakes in a few seconds. `render.yaml` included. |
 | **Fly.io** | `https://<name>.fly.dev` | Includes a small persistent volume, so local file storage is viable. `fly.toml` included. |
 | **Koyeb** | `https://<name>.koyeb.app` | Docker deploy, similar to Render. |
+| **Vercel** | `https://<name>.vercel.app` | Web client only — see [VERCEL.md](VERCEL.md). Serverless limits rule out hosting the API there. |
 | **Railway** | `https://<name>.up.railway.app` | Trial credit rather than a permanent free tier. |
 
 You will also need a free database, and — on most hosts — free object storage.

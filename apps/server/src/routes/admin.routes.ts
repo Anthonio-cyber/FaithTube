@@ -6,6 +6,7 @@ import { handler } from '../lib/async.js';
 import { badRequest, forbidden, notFound } from '../lib/errors.js';
 import { auth, requireAuth, requirePermission } from '../middleware/auth.js';
 import { validateBody, validateQuery, query } from '../middleware/validate.js';
+import { optionalBooleanish } from '../lib/zod.js';
 import { parseJson, stringifyJson } from '../lib/json.js';
 import { integrationStatus } from '../config/env.js';
 import { platformAnalytics } from '../services/analytics.service.js';
@@ -468,7 +469,7 @@ adminRouter.get(
     z.object({
       q: z.string().optional(),
       role: z.enum(ROLES).optional(),
-      suspended: z.coerce.boolean().optional(),
+      suspended: optionalBooleanish(),
       limit: z.coerce.number().min(1).max(100).default(30),
       cursor: z.string().optional(),
     }),

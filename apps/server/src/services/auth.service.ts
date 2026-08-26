@@ -102,7 +102,7 @@ export async function revokeAllSessions(userId: string) {
 export function setSessionCookie(res: Response, token: string, expiresAt: Date) {
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: env.COOKIE_SAMESITE,
     secure: env.COOKIE_SECURE,
     domain: env.COOKIE_DOMAIN,
     expires: expiresAt,

@@ -5,6 +5,7 @@ import { handler } from '../lib/async.js';
 import { attachAuth } from '../middleware/auth.js';
 import { searchLimiter } from '../middleware/rateLimit.js';
 import { validateQuery, query } from '../middleware/validate.js';
+import { booleanish } from '../lib/zod.js';
 import { search, suggest } from '../services/search.service.js';
 import { searchBible, topicSuggestions } from '../services/bible.service.js';
 import { PUBLISHED_VIDEO_WHERE, toVideoSummary, videoSummarySelect } from '../services/serialize.js';
@@ -61,7 +62,7 @@ searchRouter.get(
   '/bible',
   attachAuth,
   searchLimiter,
-  validateQuery(z.object({ q: z.string().min(2).max(300), summarise: z.coerce.boolean().default(true) })),
+  validateQuery(z.object({ q: z.string().min(2).max(300), summarise: booleanish(true) })),
   handler(async (req, res) => {
     const params = query<{ q: string; summarise: boolean }>(req);
 
