@@ -130,3 +130,40 @@ export function uploadWithProgress<T>(
 
   return { promise, abort: () => xhr.abort() };
 }
+
+/**
+ * Uploads one file straight to object storage.
+ *
+ * Deliberately not routed through `api()`: the destination is a presigned
+ * storage URL on another origin, and sending our session cookie or API headers
+ * to it would both break the signature and leak the session. Only the headers
+ * that were signed may be sent.
+ */
+export function putWithProgress(
+  url: string,
+  file: File,
+  headers: Record<string, string>,
+  onProgress: (percent: number) => void,
+): { promise: Promise<void>; abort: () => void } {
+  const xhr = new XMLHttpRequest();
+  const promise = new Promise<void>((resolve, reject) => {
+    xhr.open('PUT', url);
+    for (const [key, value] of Object.entries(headers)) xhr.setRequestHeader(key, value);
+
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new ApiError(xhr.status, 'storage_upload_failed', 'The video could not be sent to storage.'));
+    });
+    xhr.addEventListener('error', () =>
+      reject(new ApiError(0, 'network_error', 'The connection was lost during upload.')),
+    );
+    xhr.addEventListener('abort', () => reject(new ApiError(0, 'aborted', 'Upload cancelled.')));
+    xhr.send(file);
+  });
+
+  return { promise, abort: () => xhr.abort() };
+}

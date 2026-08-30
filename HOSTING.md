@@ -21,6 +21,11 @@ You will open four sites, in this order:
 Do them in order. Steps 2 and 3 produce values that step 4 asks you for, so
 keep a scratch note open to paste them into.
 
+> Prefer Vercel? [`VERCEL.md`](VERCEL.md) is the same walkthrough for a Vercel
+> deployment. The trade-offs differ — Vercel uploads video straight to storage
+> and never sleeps, Render can run the full ffmpeg pipeline — but both are free
+> and both are browser-only.
+
 ---
 
 ## Before you start: what "free" costs you

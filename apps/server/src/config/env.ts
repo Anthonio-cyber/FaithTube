@@ -59,6 +59,12 @@ const schema = z.object({
   CDN_BASE_URL: z.string().optional(),
 
   MAX_UPLOAD_BYTES: z.coerce.number().default(2 * 1024 * 1024 * 1024),
+  /**
+   * How long a direct-to-storage upload URL stays valid. It has to outlast the
+   * upload itself on a slow connection, so this is generous — the URL is
+   * single-key, single-method and only ever handed to the person uploading.
+   */
+  UPLOAD_URL_TTL_SECONDS: z.coerce.number().default(6 * 60 * 60),
 
   MODERATION_PROVIDER: z.enum(['auto', 'heuristic', 'anthropic']).default('auto'),
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -96,6 +102,13 @@ const schema = z.object({
   WEB_DIST_DIR: z.string().default('../web/dist'),
 
   WORKER_ENABLED: boolFromEnv(true),
+  /**
+   * Drains the job queue in the request that enqueued it, instead of leaving it
+   * to the background worker. This is what makes a serverless host workable:
+   * there is no process to poll, and a schedule slow enough to be free would
+   * leave uploads sitting unreviewed for hours.
+   */
+  INLINE_PIPELINE: boolFromEnv(false),
   /** Shared secret for the cron-driven processing endpoint. Unset = disabled. */
   CRON_SECRET: z.string().optional(),
   /** Jobs per cron invocation. Keep it low enough to fit a function timeout. */
@@ -114,7 +127,17 @@ const schema = z.object({
  * the generated hostname until after the service existed. An explicitly set
  * APP_URL always wins — a custom domain still overrides this.
  */
+/**
+ * Serverless hosts have no persistent process and no writable disk. Detecting
+ * that here means the platform is correctly configured on arrival rather than
+ * depending on the operator setting three flags they have no way to know about.
+ */
+const isServerless = Boolean(process.env.VERCEL);
+
 const hostProvidedUrl =
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : undefined) ??
   process.env.RENDER_EXTERNAL_URL ??
   (process.env.FLY_APP_NAME ? `https://${process.env.FLY_APP_NAME}.fly.dev` : undefined) ??
   (process.env.KOYEB_PUBLIC_DOMAIN ? `https://${process.env.KOYEB_PUBLIC_DOMAIN}` : undefined);
@@ -123,6 +146,16 @@ const rawEnv: NodeJS.ProcessEnv = { ...process.env };
 if (hostProvidedUrl) {
   rawEnv.APP_URL ||= hostProvidedUrl;
   rawEnv.API_URL ||= hostProvidedUrl;
+}
+if (isServerless) {
+  // A polling worker inside a function would hold the invocation open and still
+  // die between requests; the queue is drained inline instead.
+  rawEnv.WORKER_ENABLED ||= 'false';
+  rawEnv.INLINE_PIPELINE ||= 'true';
+  // The filesystem is read-only apart from /tmp, so local storage cannot work
+  // and ffmpeg is not installed.
+  rawEnv.STORAGE_DRIVER ||= 's3';
+  rawEnv.TRANSCODE_ENABLED ||= 'false';
 }
 
 const parsed = schema.safeParse(rawEnv);

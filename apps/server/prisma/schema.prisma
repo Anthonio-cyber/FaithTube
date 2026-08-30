@@ -8,6 +8,12 @@
 
 generator client {
   provider = "prisma-client-js"
+  // "native" covers local development and any host that builds on the machine
+  // it runs on. The RHEL target is what Vercel's Node runtime needs: it builds
+  // in one container and runs the function in another, so the engine for the
+  // runtime image has to be generated ahead of time or Prisma fails on the
+  // first query with "Query engine library for current platform not found".
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {

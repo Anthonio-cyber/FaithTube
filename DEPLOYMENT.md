@@ -1,8 +1,9 @@
 # Deploying FaithTube on a free domain
 
-> **Never used a terminal?** [`HOSTING.md`](HOSTING.md) walks through the same
-> deployment entirely in the browser, click by click. This page is the
-> reference: every host, every option, and what each setting does.
+> **Never used a terminal?** [`HOSTING.md`](HOSTING.md) (Render) and
+> [`VERCEL.md`](VERCEL.md) (Vercel) each walk through a deployment entirely in
+> the browser, click by click. This page is the reference: every host, every
+> option, and what each setting does.
 
 FaithTube is built to run as **one service**: a single Node process serves the
 API, runs the video-processing worker, and serves the built web client. That
@@ -16,7 +17,7 @@ Every free host below gives you an HTTPS domain at no cost:
 | **Render** | `https://<name>.onrender.com` | Easiest. Sleeps after ~15 min idle, wakes in a few seconds. `render.yaml` included, and needs no terminal at all. |
 | **Fly.io** | `https://<name>.fly.dev` | Includes a small persistent volume, so local file storage is viable. `fly.toml` included. |
 | **Koyeb** | `https://<name>.koyeb.app` | Docker deploy, similar to Render. |
-| **Vercel** | `https://<name>.vercel.app` | Web client only — see [VERCEL.md](VERCEL.md). Serverless limits rule out hosting the API there. |
+| **Vercel** | `https://<name>.vercel.app` | Whole platform, browser-only — see [VERCEL.md](VERCEL.md). Serverless: uploads go direct to storage, moderation runs inline, no ffmpeg. |
 | **Railway** | `https://<name>.up.railway.app` | Trial credit rather than a permanent free tier. |
 
 You will also need a free database, and — on most hosts — free object storage.

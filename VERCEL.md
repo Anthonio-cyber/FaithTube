@@ -1,164 +1,264 @@
-# Deploying FaithTube with Vercel
+# Putting FaithTube online with Vercel — from a browser, on a free domain
 
-**Short version:** put the web client on Vercel and the API somewhere that can
-run a process. Vercel is excellent at the first job and a poor fit for the
-second, for reasons that are specific and worth knowing before you commit.
+This guide assumes you have **no terminal**. Everything happens in browser tabs.
+At the end the whole platform — client, API and moderation — runs on Vercel at
+`https://faithtube-yourname.vercel.app`, with HTTPS included.
 
-Both halves are free, and both give you an HTTPS domain:
+**Time:** about 30 minutes. **Cost:** nothing; none of these ask for a card.
 
-```
-  faithtube.vercel.app   ──►   faithtube-api.onrender.com
-  (Vercel, static SPA)         (Render or Fly, API + worker)
-```
+| # | Site | What it gives you |
+|---|------|-------------------|
+| 1 | [github.com](https://github.com) | the code (already yours) |
+| 2 | [neon.tech](https://neon.tech) | free Postgres database |
+| 3 | [dash.cloudflare.com](https://dash.cloudflare.com) | free R2 storage for uploaded video |
+| 4 | [vercel.com](https://vercel.com) | free hosting + the free domain |
 
----
-
-## Why the API does not go on Vercel
-
-Vercel runs serverless functions. Four of its limits collide with what a video
-platform has to do:
-
-| Limit | What breaks |
-|---|---|
-| **4.5 MB request body** | Video upload. Not "slow" — rejected. This alone is decisive. |
-| **No persistent process** | The processing worker polls a job queue. There is nothing to poll from. |
-| **No ffmpeg** | No thumbnails, no audio extraction for transcription, no quality ladder. |
-| **Hobby cron runs once per day** | Even driving the queue by schedule, an upload could wait 24 hours. |
-
-You could work around the first by uploading straight to object storage with a
-presigned URL, and the second with Vercel Cron on a Pro plan. You cannot work
-around ffmpeg, and on the free tier the daily cron makes the platform unusable.
-
-So: Vercel for the client, Render or Fly for the API. This is a normal split and
-everything in the repo supports it.
-
-> If you would rather have one deployment on one domain, skip Vercel entirely and
-> follow [`DEPLOYMENT.md`](DEPLOYMENT.md) — the app also runs as a single service
-> that serves the API and the client together.
+Do them in order — steps 2 and 3 produce values that step 4 asks for. Keep a
+scratch note open.
 
 ---
 
-## Step 1 — Deploy the API first
+## What Vercel can and cannot do here
 
-The client needs the API's URL at build time, so do this half first.
+Vercel runs serverless functions: short-lived, with no disk and no background
+process. FaithTube is set up to work within that, but two things genuinely
+change, and it is better to know now.
 
-Follow [`DEPLOYMENT.md`](DEPLOYMENT.md) to put the API on Render or Fly. You need
-a free Postgres database (Neon) and free object storage (Cloudflare R2). Note the
-API's URL, e.g. `https://faithtube-api.onrender.com`.
+**Video does not pass through the API.** A Vercel function rejects any request
+body over 4.5 MB, which is most sermons. So the browser uploads **directly to
+Cloudflare R2** using a signed URL the API issues, and only tells the API the
+upload is done. This is why step 3 is not optional: with no R2, there is nowhere
+for video to go and uploads will not work at all. (On this path the size limit
+is the bucket's, not the function's — so it is actually the more generous
+arrangement.)
 
-Then set these three on the API, which are what make a cross-domain client work:
+**There is no ffmpeg and no background worker.** Video is stored and played
+exactly as uploaded: no generated thumbnail, no quality ladder, no audio
+extracted for transcription. The moderation pipeline instead runs *inline*, in
+the request that finishes the upload, so a creator still gets a decision
+immediately rather than waiting on a schedule. Everything else — accounts,
+roles, moderation queues, comments, playlists, subscriptions, analytics,
+premium — works normally, and the admin area reports transcoding as "not
+configured" rather than pretending.
 
-```bash
-APP_URL=https://faithtube.vercel.app       # your Vercel domain
-CORS_EXTRA_ORIGINS=https://faithtube.vercel.app
-COOKIE_SAMESITE=none                        # the client is on another domain
-COOKIE_SECURE=true                          # browsers require this with SameSite=None
-SERVE_WEB=false                             # Vercel serves the client, not the API
+If you want thumbnails and the quality ladder, that needs a host that runs a
+real process; [`HOSTING.md`](HOSTING.md) covers that path. Nothing about your
+data or your code changes if you move later.
+
+---
+
+## Step 1 — Know which branch to deploy
+
+The finished platform is on:
+
+```
+claude/christian-video-platform-build-etadqh
 ```
 
-`COOKIE_SAMESITE` is the one people miss. With the default `lax`, the browser
-will not send the session cookie to an API on a different domain, and sign-in
-appears to do nothing at all. The API refuses to start if you set `none` without
-`COOKIE_SECURE=true`, because browsers discard that combination silently.
+`main` holds only the empty starting commit. Either pick that branch in
+Vercel later (step 4), or merge it into `main` first through GitHub's web UI
+(**Pull requests → New pull request**, base `main`, then **Merge**).
 
-## Step 2 — Deploy the client to Vercel
+---
 
-Push the repository to GitHub, then:
+## Step 2 — A free Postgres database (Neon)
 
-1. **vercel.com → Add New → Project**, import the repository.
-2. Set **Root Directory** to `apps/web`. This matters — the repo is a monorepo
-   and `apps/web/vercel.json` carries the build settings.
-3. Leave the framework preset as **Vite** (detected automatically).
-4. Add one environment variable:
+1. **[neon.tech](https://neon.tech)** → **Sign up with GitHub**.
+2. Let it create a project; name it `faithtube` if asked.
+3. On the dashboard find **Connection string**, with the dropdown on
+   **Pooled connection**.
+4. Copy it — `postgresql://neondb_owner:…@ep-…-pooler.….neon.tech/neondb?sslmode=require`
+5. Save it in your note as **DATABASE_URL**.
+
+> The **pooled** string matters more here than on a normal host. Every
+> serverless request may open its own connection, and the pooler is what stops
+> a busy moment from exhausting the database's connection limit.
+
+---
+
+## Step 3 — Storage for video (Cloudflare R2) — required
+
+1. **[dash.cloudflare.com](https://dash.cloudflare.com)** → sign up (free).
+2. Sidebar → **R2 Object Storage** → **Create bucket** → name it
+   `faithtube-media`, location **Automatic** → **Create bucket**.
+3. Open the bucket → **Settings** → **Public Development URL** → **Enable**.
+   Copy the `https://pub-xxxxxxxx.r2.dev` URL into your note as **CDN_BASE_URL**.
+   *(Without this, uploads succeed but nothing plays.)*
+4. **Still in Settings, add a CORS policy.** This is the step people miss, and
+   without it the browser refuses to upload. Find **CORS Policy** → **Add CORS
+   policy**, and paste:
+
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://faithtube-yourname.vercel.app"],
+       "AllowedMethods": ["PUT", "GET", "HEAD"],
+       "AllowedHeaders": ["content-type"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+
+   Use your real Vercel domain. You will not know it until step 4 — so either
+   come back to this after deploying, or put `"*"` in `AllowedOrigins` to get
+   going and tighten it afterwards.
+5. Back on the **R2 Object Storage** overview → **Manage API tokens** →
+   **Create API token**. Name `faithtube`, permission **Object Read & Write**,
+   scoped to the `faithtube-media` bucket.
+6. Copy all three values now — the secret is shown **once**:
+   - **Access Key ID** → **S3_ACCESS_KEY_ID**
+   - **Secret Access Key** → **S3_SECRET_ACCESS_KEY**
+   - the S3 endpoint, `https://<account-id>.r2.cloudflarestorage.com`
+     → **S3_ENDPOINT** *(the account address, with no bucket name on the end)*
+
+---
+
+## Step 4 — Deploy on Vercel
+
+`vercel.json` in the repository root already describes the build, the function
+and the routing, so Vercel only needs your values.
+
+1. **[vercel.com](https://vercel.com)** → **Sign up with GitHub** → **Add New →
+   Project** → import your `FaithTube` repository.
+2. **Do not change Root Directory.** Leave it at the repository root — the API
+   function and the build settings live there. (An older version of this guide
+   said `apps/web`; that was for hosting the client alone.)
+3. Under **Git Branch**, pick the branch from step 1 (or `main` if you merged).
+4. Expand **Environment Variables** and add these:
 
    | Name | Value |
-   |---|---|
-   | `VITE_API_URL` | `https://faithtube-api.onrender.com` |
+   |------|-------|
+   | `DATABASE_URL` | the Neon pooled string |
+   | `DATABASE_PROVIDER` | `postgresql` |
+   | `JWT_SECRET` | a long random string you make up — 40+ characters |
+   | `COOKIE_SECURE` | `true` |
+   | `S3_BUCKET` | `faithtube-media` |
+   | `S3_REGION` | `auto` |
+   | `S3_ENDPOINT` | your `https://….r2.cloudflarestorage.com` |
+   | `S3_ACCESS_KEY_ID` | from step 3 |
+   | `S3_SECRET_ACCESS_KEY` | from step 3 |
+   | `CDN_BASE_URL` | your `https://pub-….r2.dev` |
+   | `SEED_ON_BOOT` | `true` — remove it after the first deploy |
+   | `SEED_ADMIN_EMAIL` | your email; this becomes the owner account |
+   | `SEED_ADMIN_PASSWORD` | a strong password you choose now |
 
-   Add it for Production, Preview and Development.
-5. **Deploy.**
+   Nothing else is needed. `APP_URL` and `API_URL` are worked out from Vercel's
+   own domain, and the storage driver, the disabled worker and the inline
+   pipeline are all set automatically because the code can see it is running on
+   Vercel.
 
-`apps/web/vercel.json` already handles the rest: it builds the shared package
-before the client, rewrites unknown paths to `index.html` so deep links like
-`/watch/abc123` work, caches hashed assets for a year while keeping `index.html`
-uncached, and sets the usual security headers.
+   Leave `ANTHROPIC_API_KEY`, `GOOGLE_*` and `STRIPE_*` unset for now. Each
+   unset integration shows as "not configured" in the admin area and the
+   platform uses its built-in fallback — moderation runs on the on-device
+   classifier, which is fully functional on its own.
 
-### With the Vercel CLI instead
+5. **Deploy.** The first build takes 3–6 minutes. It compiles the shared
+   package, the API and the web client, then applies the database schema and
+   seeds it.
 
-```bash
-npm i -g vercel
-cd apps/web
-vercel link
-vercel env add VITE_API_URL production      # paste the API URL
-vercel --prod
-```
+When it finishes, open your `https://faithtube-yourname.vercel.app` domain.
 
-## Step 3 — Point the two at each other
+6. **Go back to R2 and put that exact domain in the CORS policy** from step 3,
+   if you used `"*"` or guessed.
 
-`VITE_API_URL` is read at **build time**, not runtime. If you change it, or the
-API's domain changes, you must redeploy the client — setting the variable alone
-does nothing to an existing build.
+---
 
-Once both are up:
+## Step 5 — First sign-in, and locking down
 
-1. Open your Vercel URL and sign in. If sign-in appears to succeed but you land
-   back signed out, `COOKIE_SAMESITE` is the culprit — see step 1.
-2. Check `/admin` → Overview. The integrations panel shows what the API actually
-   has configured.
+1. Sign in with the `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` you set. You are
+   **SUPER_ADMIN**.
+2. **Settings → Privacy & security** → change your password. The seeded one is
+   sitting in Vercel's dashboard.
+3. Vercel → **Settings → Environment Variables** → delete **`SEED_ON_BOOT`**,
+   then **Redeploy**. Re-running the seed is harmless — it never overwrites a
+   password you have changed — but there is no reason to repeat it.
+4. The seed also creates `moderator@faithtube.example` and
+   `viewer@faithtube.example` so you can see how the roles differ. They share
+   the seeded password: **suspend both from Admin → Users** before the site is
+   public.
 
-## Step 4 — A custom domain
+Then upload something. Watch the network panel if you like — the video goes
+straight to `r2.cloudflarestorage.com`, never to Vercel.
 
-Vercel issues certificates automatically. After adding your domain there:
+---
 
-1. Update `APP_URL` and `CORS_EXTRA_ORIGINS` on the API to the new origin.
-2. Update `GOOGLE_REDIRECT_URI` and re-save it in Google Cloud Console.
+## Optional integrations
+
+Add these in **Vercel → Settings → Environment Variables**, then **Redeploy**
+(environment changes do not reach an existing deployment on their own).
+
+**Better AI moderation.** The on-device classifier is real and works. An
+[Anthropic API key](https://console.anthropic.com) gives you a reviewer that
+reads titles, descriptions and transcripts in context:
+`ANTHROPIC_API_KEY`.
+
+**Sign in with Google.** At
+[console.cloud.google.com](https://console.cloud.google.com) create an OAuth
+client (Web application) with redirect URI
+`https://<your-domain>/api/auth/google/callback`, then set `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI`.
+
+**Premium subscriptions.** At [stripe.com](https://stripe.com) take the secret
+key, and add a webhook endpoint at `https://<your-domain>/api/premium/webhook`
+for `checkout.session.completed`, `customer.subscription.updated`,
+`customer.subscription.deleted` and `invoice.payment_failed`. Then set
+`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. The $25/month price is not
+hard-coded — change it in **Admin → Settings**. Card details never reach
+FaithTube's database; Stripe's hosted checkout handles them.
+
+> Keys belong in Vercel's Environment Variables and nowhere else. Never put one
+> in a `VITE_` variable — anything with that prefix is compiled into the
+> JavaScript every visitor downloads.
+
+---
+
+## A custom domain
+
+Vercel → your project → **Settings → Domains → Add**. Vercel issues the
+certificate. Afterwards:
+
+1. Add the new origin to the R2 bucket's CORS policy.
+2. Update `GOOGLE_REDIRECT_URI` (and the URI in Google Cloud Console).
 3. Update the Stripe webhook URL.
-4. **Redeploy the Vercel project** so the client picks up any changed
-   `VITE_API_URL`.
-
-If you put the client and API on subdomains of one domain — `app.example.org` and
-`api.example.org` — you can use `COOKIE_DOMAIN=.example.org` with
-`COOKIE_SAMESITE=lax` instead, which is slightly stricter and works because the
-two are then same-site.
+4. Set `APP_URL` and `API_URL` to `https://yourdomain.com` — only needed once
+   you have a custom domain; on a `.vercel.app` address they work themselves out.
 
 ---
 
-## Troubleshooting
+## When something goes wrong
 
-**Sign-in seems to work, then I am signed out.** The session cookie is being
-discarded. Set `COOKIE_SAMESITE=none` and `COOKIE_SECURE=true` on the API, and
-make sure both sides are HTTPS.
+Vercel → your project → **Deployments** → click the deployment → **Build Logs**
+for build problems, **Runtime Logs** for anything after.
 
-**Browser console shows a CORS error.** Your Vercel origin is not in
-`CORS_EXTRA_ORIGINS` on the API. It must be the exact origin — scheme and host,
-no trailing slash. Preview deployments get their own hostnames, so add those too
-or test against production.
+| What you see | What it means | Fix |
+|---|---|---|
+| Build fails, `DATABASE_URL is not set` | the variable is missing, or was added to Preview only | add it for **Production**, then redeploy |
+| `this build targets sqlite, but DATABASE_URL points at postgresql` | `DATABASE_PROVIDER` is missing | set it to `postgresql` and redeploy |
+| `Query engine library for current platform not found` | a stale build from before this was configured | **Redeploy** with *Use existing build cache* switched off |
+| Upload stalls, console shows a CORS error on `r2.cloudflarestorage.com` | the bucket's CORS policy does not list your domain | step 3.4, using the exact origin — scheme and host, no trailing slash |
+| Upload finishes, then "That upload did not finish" | the PUT never reached the bucket | same CORS policy; check the network panel for a failed `PUT` |
+| Video plays nowhere | `CDN_BASE_URL` missing, or the R2 public URL is off | R2 → Settings → Public Development URL → Enable |
+| `Object storage (S3) is not configured` | an `S3_*` value is missing or mistyped | re-check all four; the secret is shown once, so make a new token if lost |
+| Sign-in appears to work, then you are signed out | `COOKIE_SECURE` is not `true` | set it and redeploy |
+| Everything works but there are no videos | `SEED_ON_BOOT` was never `true` | set it, redeploy, then remove it |
+| `504` on a slow request | the function's 60-second budget | usually a very large upload finalising; retry |
 
-**Deep links 404 on refresh.** Root Directory is not set to `apps/web`, so
-`vercel.json` and its rewrites are not being read.
-
-**The build fails with "Cannot find module '@faithtube/shared'".** Same cause —
-the build command in `vercel.json` builds the shared package first, and Vercel
-only reads that file when Root Directory points at `apps/web`.
-
-**Uploads succeed but nothing ever processes.** The API's worker is not running.
-Check `WORKER_ENABLED` is not set to `false`, and that the API host runs a
-persistent process rather than serverless functions.
+To check the API itself: open `https://<your-domain>/api/system/health`, which
+should answer `{"status":"ok","database":"ok",…}`.
 
 ---
 
-## If you really want everything on Vercel
+## Hosting only the client on Vercel
 
-Understand what you are giving up: no video upload above 4.5 MB through the API,
-no ffmpeg, and processing only as often as your plan's cron allows. The pieces
-that exist for it:
+If you would rather run the API on a host with ffmpeg and a real worker, and
+keep Vercel for the client alone, that split is still supported: set **Root
+Directory** to `apps/web` (which uses `apps/web/vercel.json` instead), give it
+`VITE_API_URL` pointing at your API, and on the API set `SERVE_WEB=false`,
+`CORS_EXTRA_ORIGINS=https://your-app.vercel.app`, `COOKIE_SAMESITE=none` and
+`COOKIE_SECURE=true`.
 
-- `GET|POST /api/system/cron/process` runs one pass of the job queue. Set
-  `CRON_SECRET` on the API and call it on a schedule — Vercel Cron sends the
-  secret as a Bearer token automatically. It processes up to `CRON_MAX_JOBS`
-  (default 3) per invocation so it fits inside a function timeout.
-- `WORKER_ENABLED=false` turns off the in-process worker when cron is driving it.
-
-Making uploads work would additionally require presigned direct-to-storage
-uploads so the video never passes through a function, which the current upload
-route does not do.
+`COOKIE_SAMESITE` is the one people miss: with the default `lax` the browser
+will not send the session cookie to an API on another domain, and sign-in
+appears to do nothing. The API refuses to start on `none` without
+`COOKIE_SECURE=true`, because browsers discard that combination silently.
+`VITE_API_URL` is read at **build time**, so changing it means redeploying.

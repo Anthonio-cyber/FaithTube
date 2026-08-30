@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { CATEGORIES } from '@faithtube/shared';
-import { api, ApiError, uploadWithProgress } from '@/lib/api';
+import { api, ApiError, putWithProgress, uploadWithProgress } from '@/lib/api';
 import { cx } from '@/lib/format';
 import { useAuth } from '@/context/AuthContext';
 import { useConfig } from '@/context/ConfigContext';
@@ -10,6 +10,14 @@ import { useToast } from '@/context/ToastContext';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Card, Checkbox, Field, Input, ProgressBar, Select, Textarea } from '@/components/ui';
 import { Button, LinkButton } from '@/components/ui/Button';
+
+interface UploadTicket {
+  uploadUrl: string;
+  headers: Record<string, string>;
+  grant: string;
+  storageKey: string;
+  expiresInSeconds: number;
+}
 import { IconCheck, IconShield, IconUpload } from '@/components/ui/Icons';
 
 type Stage = 'select' | 'details' | 'uploading' | 'review';
@@ -114,30 +122,81 @@ export default function UploadPage() {
     setStage('details');
   }
 
+  /** The metadata both upload paths send, as plain values. */
+  function metadataFields(): Record<string, string> {
+    const fields: Record<string, string> = {
+      title: form.title.trim(),
+      description: form.description.trim(),
+      categorySlug: form.categorySlug,
+      tags: form.tags,
+      visibility: form.visibility,
+      madeForKids: String(form.madeForKids),
+      isShort: String(form.isShort),
+      premiumOnly: String(form.premiumOnly),
+    };
+    if (form.visibility === 'SCHEDULED' && form.scheduledFor) {
+      fields.scheduledFor = new Date(form.scheduledFor).toISOString();
+    }
+    return fields;
+  }
+
+  /**
+   * Sends the file to object storage and returns the grant proving it is ours.
+   * Returns null when this deployment has no object storage, which is the
+   * signal to post the file through the API instead.
+   */
+  async function uploadDirect(target: File, kind: 'video' | 'thumbnail', onProgress: (percent: number) => void) {
+    let ticket: UploadTicket;
+    try {
+      ticket = await api<UploadTicket>('/videos/upload-url', {
+        method: 'POST',
+        body: { kind, filename: target.name, contentType: target.type || 'application/octet-stream', sizeBytes: target.size },
+      });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 501) return null;
+      throw err;
+    }
+
+    const { promise, abort } = putWithProgress(ticket.uploadUrl, target, ticket.headers, onProgress);
+    if (kind === 'video') abortRef.current = abort;
+    await promise;
+    return ticket.grant;
+  }
+
   async function submit() {
     if (!file) return;
     setStage('uploading');
     setProgress(0);
 
-    const body = new FormData();
-    body.append('video', file);
-    if (thumbnail) body.append('thumbnail', thumbnail);
-    body.append('title', form.title.trim());
-    body.append('description', form.description.trim());
-    body.append('categorySlug', form.categorySlug);
-    body.append('tags', form.tags);
-    body.append('visibility', form.visibility);
-    if (form.visibility === 'SCHEDULED' && form.scheduledFor) {
-      body.append('scheduledFor', new Date(form.scheduledFor).toISOString());
-    }
-    body.append('madeForKids', String(form.madeForKids));
-    body.append('isShort', String(form.isShort));
-    body.append('premiumOnly', String(form.premiumOnly));
-
-    const { promise, abort } = uploadWithProgress<{ video: { id: string } }>('/videos', body, setProgress);
-    abortRef.current = abort;
-
     try {
+      // Preferred path: the file goes straight to storage, so its size is
+      // limited by the bucket rather than by whatever sits in front of the API.
+      const videoGrant = await uploadDirect(file, 'video', setProgress);
+
+      if (videoGrant) {
+        const thumbnailGrant = thumbnail ? await uploadDirect(thumbnail, 'thumbnail', () => {}) : null;
+        const result = await api<{ video: { id: string } }>('/videos', {
+          method: 'POST',
+          body: {
+            ...metadataFields(),
+            videoGrant,
+            ...(thumbnailGrant ? { thumbnailGrant } : {}),
+          },
+        });
+        setVideoId(result.video.id);
+        setStage('review');
+        return;
+      }
+
+      // Fallback: no object storage configured, so the file is posted through
+      // the API and written to its disk.
+      const body = new FormData();
+      body.append('video', file);
+      if (thumbnail) body.append('thumbnail', thumbnail);
+      for (const [key, value] of Object.entries(metadataFields())) body.append(key, value);
+
+      const { promise, abort } = uploadWithProgress<{ video: { id: string } }>('/videos', body, setProgress);
+      abortRef.current = abort;
       const result = await promise;
       setVideoId(result.video.id);
       setStage('review');

@@ -62,8 +62,11 @@ No API keys are needed. Everything above works on a clean checkout.
 For the mobile app, see [`apps/mobile/README.md`](apps/mobile/README.md).
 For hosting on a free domain:
 
-- [`HOSTING.md`](HOSTING.md) — put FaithTube online entirely from a browser,
-  with no terminal. Free database, free storage, free HTTPS domain, ~30 minutes.
+- [`VERCEL.md`](VERCEL.md) — the whole platform on Vercel, entirely from a
+  browser. Video uploads straight to storage and moderation runs inline, so no
+  background process is needed. No ffmpeg, so no generated thumbnails.
+- [`HOSTING.md`](HOSTING.md) — the same, on Render, also browser-only. Switch to
+  its Docker option when you want the full video-processing pipeline.
 - [`DEPLOYMENT.md`](DEPLOYMENT.md) — the full reference: every supported host,
   every environment variable, and the trade-offs between them.
 

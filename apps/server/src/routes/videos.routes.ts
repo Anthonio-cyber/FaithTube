@@ -7,7 +7,7 @@ import { CATEGORY_SLUGS, VISIBILITIES } from '@faithtube/shared';
 import { prisma } from '../db/client.js';
 import { env } from '../config/env.js';
 import { handler } from '../lib/async.js';
-import { badRequest, forbidden, notFound } from '../lib/errors.js';
+import { badRequest, forbidden, notConfigured, notFound } from '../lib/errors.js';
 import { newStorageKey, newVideoSlug } from '../lib/ids.js';
 import { parseJson, stringifyJson } from '../lib/json.js';
 import { attachAuth, auth, requireAuth } from '../middleware/auth.js';
@@ -15,7 +15,10 @@ import { uploadLimiter, writeLimiter } from '../middleware/rateLimit.js';
 import { validateBody, validateQuery, query } from '../middleware/validate.js';
 import { booleanish, optionalBooleanish } from '../lib/zod.js';
 import { mediaKey, storage } from '../services/storage.service.js';
-import { enqueuePipeline, pipelineStatus, publishVideo } from '../services/pipeline.service.js';
+import { issueUploadGrant, verifyUploadGrant } from '../services/uploadGrant.js';
+import { PIPELINE_ORDER, enqueuePipeline, pipelineStatus, publishVideo } from '../services/pipeline.service.js';
+import { runWorkerPass } from '../workers/videoWorker.js';
+import { logger } from '../lib/logger.js';
 import { checkThumbnailMetadata } from '../ai/thumbnailSafety.js';
 import {
   PUBLISHED_VIDEO_WHERE,
@@ -28,6 +31,8 @@ import { relatedVideos } from '../services/recommendation.service.js';
 import { recordAudit } from '../services/audit.service.js';
 
 export const videosRouter = Router();
+
+const uploadLog = logger('upload');
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -53,7 +58,77 @@ const upload = multer({
   },
 });
 
+const VIDEO_MIME_TYPES = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska', 'video/mpeg', 'video/x-m4v'];
+const THUMBNAIL_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+const uploadUrlSchema = z.object({
+  kind: z.enum(['video', 'thumbnail']),
+  filename: z.string().min(1).max(300),
+  contentType: z.string().min(3).max(120),
+  sizeBytes: z.number().int().positive(),
+});
+
+/**
+ * Hands back a URL the browser uploads to directly.
+ *
+ * The video never passes through the API, which is what makes the platform
+ * host-agnostic: a serverless function with a 4.5 MB body limit and a
+ * ten-second budget cannot relay a sermon, but it can sign a URL. The reply
+ * also carries a grant that binds the storage key to this account — see
+ * uploadGrant.ts for why claiming a key needs proof.
+ */
+videosRouter.post(
+  '/upload-url',
+  requireAuth,
+  uploadLimiter,
+  validateBody(uploadUrlSchema),
+  handler(async (req, res) => {
+    const context = auth(req);
+    const body = req.body as z.infer<typeof uploadUrlSchema>;
+
+    if (!storage.presignPut) {
+      throw notConfigured(
+        'Direct uploads',
+        'This deployment stores files locally, so uploads are posted through the API instead.',
+      );
+    }
+
+    const allowed = body.kind === 'video' ? VIDEO_MIME_TYPES : THUMBNAIL_MIME_TYPES;
+    if (!allowed.includes(body.contentType)) {
+      throw badRequest(
+        body.kind === 'video'
+          ? `Unsupported video format: ${body.contentType}. Upload MP4, MOV, WebM or MKV.`
+          : 'Thumbnails must be JPEG, PNG or WebP.',
+      );
+    }
+    if (body.kind === 'video' && body.sizeBytes > env.MAX_UPLOAD_BYTES) {
+      throw badRequest(`That file is larger than the ${Math.round(env.MAX_UPLOAD_BYTES / 1024 / 1024 / 1024)} GB limit.`);
+    }
+
+    const channel = await prisma.channel.findUnique({ where: { ownerId: context.userId } });
+    if (!channel) throw badRequest('Create your channel before uploading. Visit the studio to set one up.');
+    if (channel.suspended) throw forbidden('Uploads are paused on this channel.');
+
+    const defaultExt = body.kind === 'video' ? '.mp4' : '.jpg';
+    const key = mediaKey(body.kind, newStorageKey(), path.extname(body.filename) || defaultExt);
+    const presigned = storage.presignPut(key, body.contentType);
+    if (!presigned) throw notConfigured('Direct uploads', 'Object storage is not configured on this deployment.');
+
+    res.json({
+      storageKey: key,
+      grant: issueUploadGrant(
+        { key, userId: context.userId, contentType: body.contentType, kind: body.kind },
+        presigned.expiresInSeconds,
+      ),
+      ...presigned,
+    });
+  }),
+);
+
 const uploadMetadataSchema = z.object({
+  /** Present when the file went straight to storage instead of through here. */
+  videoGrant: z.string().max(2000).optional(),
+  thumbnailGrant: z.string().max(2000).optional(),
   title: z.string().min(3).max(140),
   description: z.string().max(6000).default(''),
   categorySlug: z.enum(CATEGORY_SLUGS as [string, ...string[]]),
@@ -86,47 +161,85 @@ videosRouter.post(
     const context = auth(req);
     const files = req.files as Record<string, Express.Multer.File[]> | undefined;
     const videoFile = files?.video?.[0];
-    if (!videoFile) throw badRequest('No video file was received.');
+    const thumbFile = files?.thumbnail?.[0];
+
+    // Any temp file multer wrote has to go, on every exit from here.
+    const discardTempFiles = async () => {
+      await Promise.all(
+        [videoFile, thumbFile].filter(Boolean).map((file) => fs.rm(file!.path, { force: true })),
+      );
+    };
+    const reject = async (error: unknown) => {
+      await discardTempFiles();
+      throw error;
+    };
 
     const parsed = uploadMetadataSchema.safeParse(req.body);
-    if (!parsed.success) {
-      await fs.rm(videoFile.path, { force: true });
-      throw parsed.error;
-    }
-    const meta = parsed.data;
+    if (!parsed.success) await reject(parsed.error);
+    const meta = parsed.data!;
+
+    if (!videoFile && !meta.videoGrant) await reject(badRequest('No video file was received.'));
 
     const channel = await prisma.channel.findUnique({ where: { ownerId: context.userId } });
     if (!channel) {
-      await fs.rm(videoFile.path, { force: true });
-      throw badRequest('Create your channel before uploading. Visit the studio to set one up.');
+      await reject(badRequest('Create your channel before uploading. Visit the studio to set one up.'));
     }
-    if (channel.suspended) {
-      await fs.rm(videoFile.path, { force: true });
-      throw forbidden('Uploads are paused on this channel.');
-    }
+    if (channel!.suspended) await reject(forbidden('Uploads are paused on this channel.'));
 
     const videoId = newVideoSlug();
-    const storageKey = mediaKey('video', videoId, path.extname(videoFile.originalname) || '.mp4');
-    await storage.put(storageKey, videoFile.path, videoFile.mimetype);
-    await fs.rm(videoFile.path, { force: true });
+
+    // Two ways in. Either the browser uploaded straight to object storage and
+    // sent back the grant it was issued, or the file came through this request
+    // as multipart and still has to be moved into storage.
+    let storageKey: string;
+    let sizeBytes: number;
+    if (meta.videoGrant) {
+      const grant = verifyUploadGrant(meta.videoGrant, { userId: context.userId, kind: 'video' });
+      const stored = await storage.stat(grant.key);
+      if (!stored) {
+        await reject(badRequest('That upload did not finish. Please try uploading the video again.'));
+      }
+      if (stored!.sizeBytes > env.MAX_UPLOAD_BYTES) {
+        await storage.delete(grant.key);
+        await reject(badRequest('That file is larger than this platform accepts.'));
+      }
+      storageKey = grant.key;
+      sizeBytes = stored!.sizeBytes;
+    } else {
+      storageKey = mediaKey('video', videoId, path.extname(videoFile!.originalname) || '.mp4');
+      await storage.put(storageKey, videoFile!.path, videoFile!.mimetype);
+      sizeBytes = videoFile!.size;
+    }
 
     let thumbnailUrl: string | null = null;
-    const thumbFile = files?.thumbnail?.[0];
-    if (thumbFile) {
+    if (meta.thumbnailGrant) {
+      const grant = verifyUploadGrant(meta.thumbnailGrant, { userId: context.userId, kind: 'thumbnail' });
+      const stored = await storage.stat(grant.key);
+      if (stored) {
+        const check = checkThumbnailMetadata({
+          originalFilename: path.basename(grant.key),
+          mimeType: grant.contentType,
+          sizeBytes: stored.sizeBytes,
+        });
+        if (!check.passed) {
+          await storage.delete(grant.key);
+          await reject(badRequest(check.reason ?? 'That thumbnail cannot be used.'));
+        }
+        thumbnailUrl = storage.urlFor(grant.key);
+      }
+    } else if (thumbFile) {
       const check = checkThumbnailMetadata({
         originalFilename: thumbFile.originalname,
         mimeType: thumbFile.mimetype,
         sizeBytes: thumbFile.size,
       });
-      if (!check.passed) {
-        await fs.rm(thumbFile.path, { force: true });
-        throw badRequest(check.reason ?? 'That thumbnail cannot be used.');
-      }
+      if (!check.passed) await reject(badRequest(check.reason ?? 'That thumbnail cannot be used.'));
       const thumbKey = mediaKey('thumbnail', videoId, path.extname(thumbFile.originalname) || '.jpg');
       await storage.put(thumbKey, thumbFile.path, thumbFile.mimetype);
-      await fs.rm(thumbFile.path, { force: true });
       thumbnailUrl = storage.urlFor(thumbKey);
     }
+
+    await discardTempFiles();
 
     const tags = (meta.tags ?? '')
       .split(',')
@@ -138,7 +251,7 @@ videosRouter.post(
       data: {
         id: videoId,
         slug: videoId,
-        channelId: channel.id,
+        channelId: channel!.id,
         title: meta.title.trim(),
         description: meta.description.trim(),
         categorySlug: meta.categorySlug,
@@ -146,7 +259,7 @@ videosRouter.post(
         language: meta.language,
         storageKey,
         thumbnailUrl,
-        sizeBytes: videoFile.size,
+        sizeBytes,
         visibility: meta.visibility,
         scheduledFor: meta.scheduledFor ? new Date(meta.scheduledFor) : null,
         madeForKids: meta.madeForKids,
@@ -169,6 +282,17 @@ videosRouter.post(
     }
 
     await enqueuePipeline(video.id);
+    // On a host with no background worker, the queue is drained here so the
+    // creator's video is reviewed now rather than whenever a schedule next
+    // fires. Failures are the worker's to retry; they must not fail the upload,
+    // which has already been accepted and stored.
+    if (env.INLINE_PIPELINE) {
+      try {
+        await runWorkerPass(PIPELINE_ORDER.length);
+      } catch (error) {
+        uploadLog.warn(`Inline pipeline pass failed for ${video.id}`, error);
+      }
+    }
     await recordAudit({
       action: 'video.upload',
       targetType: 'VIDEO',
