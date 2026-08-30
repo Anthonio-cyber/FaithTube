@@ -60,7 +60,12 @@ Studio with real analytics.
 No API keys are needed. Everything above works on a clean checkout.
 
 For the mobile app, see [`apps/mobile/README.md`](apps/mobile/README.md).
-For hosting on a free domain, see [`DEPLOYMENT.md`](DEPLOYMENT.md).
+For hosting on a free domain:
+
+- [`HOSTING.md`](HOSTING.md) — put FaithTube online entirely from a browser,
+  with no terminal. Free database, free storage, free HTTPS domain, ~30 minutes.
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — the full reference: every supported host,
+  every environment variable, and the trade-offs between them.
 
 ## Layout
 

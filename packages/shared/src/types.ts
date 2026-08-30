@@ -14,6 +14,8 @@ export interface PublicUser {
 
 export interface SessionUser extends PublicUser {
   email: string;
+  /** False for a Google-only account, which has no password to change. */
+  hasPassword: boolean;
   country: string | null;
   onboardingComplete: boolean;
   interests: string[];

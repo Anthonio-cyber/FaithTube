@@ -107,7 +107,25 @@ const schema = z.object({
   SEED_ADMIN_PASSWORD: z.string().default('ChangeMe!2024'),
 });
 
-const parsed = schema.safeParse(process.env);
+/**
+ * Hosts that know their own public URL announce it. Using it as the default for
+ * APP_URL and API_URL removes the single most common deployment mistake: the
+ * site is up, but every sign-in fails CORS because the operator could not know
+ * the generated hostname until after the service existed. An explicitly set
+ * APP_URL always wins — a custom domain still overrides this.
+ */
+const hostProvidedUrl =
+  process.env.RENDER_EXTERNAL_URL ??
+  (process.env.FLY_APP_NAME ? `https://${process.env.FLY_APP_NAME}.fly.dev` : undefined) ??
+  (process.env.KOYEB_PUBLIC_DOMAIN ? `https://${process.env.KOYEB_PUBLIC_DOMAIN}` : undefined);
+
+const rawEnv: NodeJS.ProcessEnv = { ...process.env };
+if (hostProvidedUrl) {
+  rawEnv.APP_URL ||= hostProvidedUrl;
+  rawEnv.API_URL ||= hostProvidedUrl;
+}
+
+const parsed = schema.safeParse(rawEnv);
 if (!parsed.success) {
   console.error('Invalid environment configuration:', parsed.error.flatten().fieldErrors);
   process.exit(1);

@@ -329,6 +329,108 @@ function AppearanceSection() {
   );
 }
 
+/**
+ * Changing a password signs every other device out, which is the whole point
+ * of the control: it is what you reach for when you think someone else has it.
+ */
+function PasswordCard() {
+  const { user } = useAuth();
+  const { push } = useToast();
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const change = useMutation({
+    mutationFn: () => api('/auth/change-password', { method: 'POST', body: { currentPassword, newPassword } }),
+    onSuccess: () => {
+      push('Your password has been changed. Other devices were signed out.', 'success');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setError(null);
+    },
+    onError: (err) => setError(err instanceof ApiError ? err.message : 'Your password could not be changed.'),
+  });
+
+  // A Google account has no password to change; saying so is more useful than
+  // showing a form that can only fail.
+  if (user && !user.hasPassword) {
+    return (
+      <Card>
+        <h2 className="font-display text-lg font-semibold">Password</h2>
+        <p className="mt-1 text-sm leading-relaxed ft-muted">
+          You sign in with Google, so there is no FaithTube password on this account. Your Google account settings control
+          access.
+        </p>
+      </Card>
+    );
+  }
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setError('The two new passwords do not match.');
+      return;
+    }
+    if (newPassword.length < 10) {
+      setError('Choose a password of at least 10 characters.');
+      return;
+    }
+    setError(null);
+    change.mutate();
+  }
+
+  return (
+    <Card>
+      <h2 className="font-display text-lg font-semibold">Password</h2>
+      <p className="mt-1 text-sm leading-relaxed ft-muted">
+        Changing your password signs you out everywhere except this device.
+      </p>
+      <form className="mt-4 space-y-4" onSubmit={submit}>
+        <Field label="Current password" id="current-password" required>
+          <Input
+            id="current-password"
+            type="password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="New password" id="new-password" hint="At least 10 characters." required>
+          <Input
+            id="new-password"
+            type="password"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Confirm new password" id="confirm-password" required>
+          <Input
+            id="confirm-password"
+            type="password"
+            autoComplete="new-password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+          />
+        </Field>
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+        <Button type="submit" variant="gold" disabled={change.isPending}>
+          {change.isPending ? 'Changing…' : 'Change password'}
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
 function PrivacySection() {
   const { push } = useToast();
   const navigate = useNavigate();
@@ -358,6 +460,8 @@ function PrivacySection() {
 
   return (
     <div className="space-y-5">
+      <PasswordCard />
+
       <Card>
         <h2 className="font-display text-lg font-semibold">Signed-in devices</h2>
         <p className="mt-1 text-sm ft-muted">Sign out anywhere you do not recognise.</p>

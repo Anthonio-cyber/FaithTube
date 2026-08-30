@@ -1,27 +1,35 @@
 # Render blueprint — deploys FaithTube as one free web service.
 #
+# Everything is set up here except the handful of values that are personal to
+# your deployment: those are marked `sync: false` and Render asks you for them
+# in the browser while it creates the service. HOSTING.md walks through the
+# whole thing click by click, with no terminal needed.
+#
 # Render's free plan gives you a domain at https://<service-name>.onrender.com
 # with TLS included. Free services sleep after ~15 minutes idle and take a few
 # seconds to wake, which is fine for a launch but worth knowing.
 #
-# Two values must be set by hand in the Render dashboard after the first deploy:
-#   DATABASE_URL  — a free Postgres connection string (Neon is recommended; see
-#                   DEPLOYMENT.md for why Render's own free Postgres expires)
-#   JWT_SECRET    — Render can generate this for you, see generateValue below
+# This blueprint uses Render's native Node runtime. That runtime has no ffmpeg,
+# so videos are stored and played exactly as uploaded — no generated thumbnail,
+# no quality ladder, no audio extraction for transcription. Everything else
+# (upload, AI moderation, publishing, playback) works. If you want the full
+# processing pipeline, deploy the Dockerfile instead: see DEPLOYMENT.md.
 services:
   - type: web
     name: faithtube
-    runtime: docker
+    runtime: node
     plan: free
     region: oregon
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    buildCommand: npm run build:hosted
+    startCommand: npm run start:hosted
     healthCheckPath: /api/system/health
     autoDeploy: true
     # Free instances have an ephemeral filesystem: anything written to disk is
     # lost on restart. Uploaded video MUST go to object storage — set
     # STORAGE_DRIVER=s3 and the S3_* keys below before accepting real uploads.
     envVars:
+      - key: NODE_VERSION
+        value: "22"
       - key: NODE_ENV
         value: production
       - key: SERVE_WEB
@@ -32,16 +40,25 @@ services:
         generateValue: true
       - key: COOKIE_SECURE
         value: "true"
+      # Leave both of these blank unless you are using a custom domain: the
+      # server reads Render's own RENDER_EXTERNAL_URL when they are unset, so it
+      # knows its public address without you having to guess the hostname
+      # before the service exists.
       - key: APP_URL
-        sync: false        # set to https://<your-service>.onrender.com
+        sync: false        # blank = auto-detect; or https://yourdomain.com
       - key: API_URL
-        sync: false        # same value as APP_URL in single-service mode
+        sync: false        # blank = auto-detect; same value as APP_URL
       - key: DATABASE_URL
         sync: false
       - key: SEED_ADMIN_EMAIL
-        sync: false
+        sync: false        # your email — this becomes the SUPER_ADMIN account
       - key: SEED_ADMIN_PASSWORD
-        sync: false
+        sync: false        # change it from the app after the first sign-in
+      # Creates the admin account and the starter content on boot. Set this to
+      # false once you have signed in successfully; it is a no-op afterwards,
+      # but leaving it on means every restart re-runs the seed.
+      - key: SEED_ON_BOOT
+        value: "true"
       # Object storage — required for uploads to survive a restart.
       - key: STORAGE_DRIVER
         value: s3

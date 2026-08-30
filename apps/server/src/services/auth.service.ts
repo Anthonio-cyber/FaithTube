@@ -154,6 +154,7 @@ export function toSessionUser(user: NonNullable<UserWithRelations>): SessionUser
   return {
     id: user.id,
     email: user.email,
+    hasPassword: Boolean(user.passwordHash),
     displayName: user.displayName,
     username: user.username,
     avatarUrl: user.avatarUrl,

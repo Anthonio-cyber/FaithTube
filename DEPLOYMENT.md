@@ -1,5 +1,9 @@
 # Deploying FaithTube on a free domain
 
+> **Never used a terminal?** [`HOSTING.md`](HOSTING.md) walks through the same
+> deployment entirely in the browser, click by click. This page is the
+> reference: every host, every option, and what each setting does.
+
 FaithTube is built to run as **one service**: a single Node process serves the
 API, runs the video-processing worker, and serves the built web client. That
 means one deployment, one free subdomain, no CORS setup, and no separate
@@ -9,7 +13,7 @@ Every free host below gives you an HTTPS domain at no cost:
 
 | Host | Free domain | Notes |
 |---|---|---|
-| **Render** | `https://<name>.onrender.com` | Easiest. Sleeps after ~15 min idle, wakes in a few seconds. `render.yaml` included. |
+| **Render** | `https://<name>.onrender.com` | Easiest. Sleeps after ~15 min idle, wakes in a few seconds. `render.yaml` included, and needs no terminal at all. |
 | **Fly.io** | `https://<name>.fly.dev` | Includes a small persistent volume, so local file storage is viable. `fly.toml` included. |
 | **Koyeb** | `https://<name>.koyeb.app` | Docker deploy, similar to Render. |
 | **Vercel** | `https://<name>.vercel.app` | Web client only — see [VERCEL.md](VERCEL.md). Serverless limits rule out hosting the API there. |
@@ -97,17 +101,37 @@ S3-compatible service — R2, Backblaze B2, Wasabi, MinIO or AWS itself.
 ### Render
 
 1. Push this repository to GitHub.
-2. In Render: **New → Blueprint**, point it at the repo. It reads `render.yaml`.
+2. In Render: **New → Blueprint**, point it at the repo and pick the branch
+   holding this code. It reads `render.yaml`.
 3. Fill in the values marked `sync: false` in the dashboard:
    - `DATABASE_URL` — from step 1
-   - `APP_URL` and `API_URL` — both `https://<your-service>.onrender.com`
    - the `S3_*` and `CDN_BASE_URL` values from step 2
    - `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` — **choose your own**
+   - `APP_URL` and `API_URL` — **leave blank**. The server falls back to
+     `RENDER_EXTERNAL_URL`, so it knows its own address without you having to
+     predict the hostname. Set them only for a custom domain.
 4. `JWT_SECRET` is generated for you by Render. Do not set it by hand.
 5. Deploy.
 
-To create the first admin account and the category rows, set
-`SEED_ON_BOOT=true`, redeploy once, then **remove it** so it does not run again.
+`SEED_ON_BOOT=true` is already in the blueprint, so the first boot creates the
+admin account, the categories and the starter content. Set it to `false` once
+you have signed in. Re-running it is harmless — the seed never overwrites a
+password you have changed — but there is no reason to repeat it.
+
+**The blueprint uses Render's native Node runtime**, which has no `ffmpeg`:
+video is stored and played exactly as uploaded, with no generated thumbnail,
+quality ladder or extracted audio. Everything else works, and the admin area
+reports transcoding as not configured rather than faking it. To get the full
+pipeline, switch the service block in `render.yaml` to:
+
+```yaml
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+```
+
+and drop `buildCommand` / `startCommand`. The build is slower and heavier, so
+it is worth doing only once you need processed video.
 
 ### Fly.io
 
@@ -144,7 +168,14 @@ docker run -p 4000:4000 \
 ## Step 4 — After the first deploy
 
 **Sign in and change the seeded password.** The seeded admin account is only as
-safe as the password you gave it.
+safe as the password you gave it, and that password is sitting in your host's
+dashboard. Change it from **Settings → Privacy & security**, which also signs
+every other device out.
+
+**Deal with the demo staff accounts.** The seed creates
+`moderator@faithtube.example` and `viewer@faithtube.example` so you can see how
+the roles differ. They share the seeded password — suspend them from
+**Admin → Users** before the site is public.
 
 **Check the integrations panel.** Go to `/admin` → Overview. Every optional
 service is listed as *configured* or *not configured*. Nothing is faked: if
