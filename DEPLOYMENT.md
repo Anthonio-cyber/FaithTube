@@ -102,8 +102,8 @@ S3-compatible service — R2, Backblaze B2, Wasabi, MinIO or AWS itself.
 ### Render
 
 1. Push this repository to GitHub.
-2. In Render: **New → Blueprint**, point it at the repo and pick the branch
-   holding this code. It reads `render.yaml`.
+2. In Render: **New → Blueprint**, point it at the repo. It reads `render.yaml`
+   from the default branch.
 3. Fill in the values marked `sync: false` in the dashboard:
    - `DATABASE_URL` — from step 1
    - the `S3_*` and `CDN_BASE_URL` values from step 2

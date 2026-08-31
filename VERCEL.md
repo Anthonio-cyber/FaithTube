@@ -47,17 +47,10 @@ data or your code changes if you move later.
 
 ---
 
-## Step 1 — Know which branch to deploy
+## Step 1 — Nothing to do
 
-The finished platform is on:
-
-```
-claude/christian-video-platform-build-etadqh
-```
-
-`main` holds only the empty starting commit. Either pick that branch in
-Vercel later (step 4), or merge it into `main` first through GitHub's web UI
-(**Pull requests → New pull request**, base `main`, then **Merge**).
+Your code is already on GitHub, on `main`, which is the branch Vercel deploys
+by default. There is no branch to choose and nothing to merge — go to step 2.
 
 ---
 
@@ -123,7 +116,7 @@ and the routing, so Vercel only needs your values.
 2. **Do not change Root Directory.** Leave it at the repository root — the API
    function and the build settings live there. (An older version of this guide
    said `apps/web`; that was for hosting the client alone.)
-3. Under **Git Branch**, pick the branch from step 1 (or `main` if you merged).
+3. Leave **Git Branch** on `main`.
 4. Expand **Environment Variables** and add these:
 
    | Name | Value |

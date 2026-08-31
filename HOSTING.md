@@ -51,25 +51,10 @@ playlists, subscriptions, analytics, premium — works on the free tier.
 
 ---
 
-## Step 1 — Point Render at the right branch
+## Step 1 — Nothing to do
 
-Your code is already on GitHub. The only thing to know is **which branch**
-the finished platform is on:
-
-```
-claude/christian-video-platform-build-etadqh
-```
-
-`main` still holds the empty starting commit. You have two options:
-
-- **Simplest:** leave the branches as they are, and pick the branch above in
-  Render's Branch box in step 4. Nothing else changes.
-- **Tidier:** merge the branch into `main` first, so `main` is the real
-  thing. On GitHub, open **Pull requests → New pull request**, set base
-  `main` and compare to the branch above, then **Create pull request** →
-  **Merge pull request**. After that, use `main` in step 4.
-
-Either works. If you are not sure, take the first one.
+Your code is already on GitHub, on `main`, which is the branch Render deploys
+by default. There is no branch to choose and nothing to merge — go to step 2.
 
 ---
 
@@ -144,9 +129,8 @@ build and run FaithTube. It only needs the values from your note.
    pick **Only select repositories** and choose `FaithTube`.
 3. In the Render dashboard: **New +** → **Blueprint**.
 4. Choose your `FaithTube` repository.
-5. **Branch:** select `claude/christian-video-platform-build-etadqh`
-   (or `main` if you merged in step 1). This matters — the wrong branch has
-   no `render.yaml` and Render will say it found no blueprint.
+5. **Branch:** leave it on `main`. (If Render ever reports that it found no
+   blueprint, this is the setting to check — `render.yaml` lives on `main`.)
 6. **Blueprint Name:** `faithtube`. Click **Deploy Blueprint** / **Apply**.
 7. Render now shows a form of the values it needs. Fill it in:
 
@@ -289,7 +273,7 @@ Everything you need is in **Render → your service → Logs**.
 | `Can't reach database server` | wrong or expired Neon string | copy the **pooled** connection string again; check it ends in `?sslmode=require` |
 | `this build targets postgresql, but DATABASE_URL points at sqlite` | a `file:` URL was pasted in | use the Neon `postgresql://…` string |
 | `FATAL: JWT_SECRET must be set…` | the generated secret went missing | Environment tab → `JWT_SECRET` → **Generate** |
-| Build fails, `no render.yaml found` | wrong branch | Settings → Branch → the branch from step 1 |
+| Build fails, `no render.yaml found` | wrong branch selected | Settings → Branch → `main` |
 | Site loads, but sign-in does nothing | usually a stale `APP_URL` | clear `APP_URL` and `API_URL` so they auto-detect, or set both to your exact `https://` address |
 | Upload succeeds, video never plays | `CDN_BASE_URL` missing or the R2 public URL is disabled | R2 bucket → Settings → Public Development URL → Enable, then set `CDN_BASE_URL` |
 | `Object storage (S3) is not configured` | an R2 key is missing or mistyped | re-check the four `S3_*` values; the secret is only shown once, so make a new token if you lost it |
