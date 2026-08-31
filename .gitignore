@@ -16,3 +16,6 @@ apps/server/prisma/prod.db
 apps/server/prisma/prisma/
 apps/mobile/.expo/
 apps/mobile/web-build/
+
+# Written by the build once the database schema has been applied.
+apps/server/.schema-applied

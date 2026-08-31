@@ -5,9 +5,9 @@
 # keeps it awake, which costs nothing: GitHub Actions is free for public
 # repositories, and the health endpoint is a single database ping.
 #
-# Set the SITE_URL repository variable (Settings → Secrets and variables →
-# Actions → Variables) to your deployment, e.g. https://faithtube.onrender.com.
-# Without it the workflow does nothing rather than guessing at a URL.
+# It pings the deployment below by default, so it works with nothing to set up.
+# Override it by adding a SITE_URL repository variable (Settings → Secrets and
+# variables → Actions → Variables) if your domain changes.
 #
 # Two caveats worth knowing. GitHub does not promise punctual scheduling — a
 # run can be minutes late under load, so the odd cold start still happens. And
@@ -31,13 +31,8 @@ jobs:
     steps:
       - name: Ping the health endpoint
         env:
-          SITE_URL: ${{ vars.SITE_URL }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://faithtube.onrender.com' }}
         run: |
-          if [ -z "$SITE_URL" ]; then
-            echo "SITE_URL is not set — skipping. See the comment at the top of this file."
-            exit 0
-          fi
-
           # --max-time is generous on purpose: if the instance had already gone
           # to sleep, this request is the one paying the wake-up cost.
           code=$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 90 \
