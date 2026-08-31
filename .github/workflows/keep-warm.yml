@@ -1,0 +1,56 @@
+# Keeps a free-tier deployment from sleeping.
+#
+# Render's free plan stops the instance after ~15 minutes with no traffic, and
+# the next visitor waits ~40 seconds for it to boot. A request every 10 minutes
+# keeps it awake, which costs nothing: GitHub Actions is free for public
+# repositories, and the health endpoint is a single database ping.
+#
+# Set the SITE_URL repository variable (Settings → Secrets and variables →
+# Actions → Variables) to your deployment, e.g. https://faithtube.onrender.com.
+# Without it the workflow does nothing rather than guessing at a URL.
+#
+# Two caveats worth knowing. GitHub does not promise punctual scheduling — a
+# run can be minutes late under load, so the odd cold start still happens. And
+# scheduled workflows are disabled automatically after 60 days without commits
+# to the repository; GitHub emails you, and re-enabling is one click.
+name: Keep warm
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping the health endpoint
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: |
+          if [ -z "$SITE_URL" ]; then
+            echo "SITE_URL is not set — skipping. See the comment at the top of this file."
+            exit 0
+          fi
+
+          # --max-time is generous on purpose: if the instance had already gone
+          # to sleep, this request is the one paying the wake-up cost.
+          code=$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 90 \
+            --retry 2 --retry-delay 15 --retry-connrefused \
+            "${SITE_URL%/}/api/system/health" || echo 000)
+
+          echo "HTTP $code"
+          cat /tmp/health.json 2>/dev/null || true
+          echo
+
+          # A sleeping instance that woke up is a success. Anything else is a
+          # real failure and should be visible in the Actions tab.
+          if [ "$code" != "200" ]; then
+            echo "::error::Health check failed with HTTP $code"
+            exit 1
+          fi

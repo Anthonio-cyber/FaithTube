@@ -3,8 +3,9 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { presignUrl } from '../lib/awsSign.js';
-import { env } from '../config/env.js';
-import { notConfigured } from '../lib/errors.js';
+import { env, storageDowngradedToDatabase } from '../config/env.js';
+import { prisma } from '../db/client.js';
+import { badRequest, notConfigured } from '../lib/errors.js';
 import { logger } from '../lib/logger.js';
 
 const log = logger('storage');
@@ -208,9 +209,88 @@ class S3StorageDriver implements StorageDriver {
   }
 }
 
-export const storage: StorageDriver = env.STORAGE_DRIVER === 's3' ? new S3StorageDriver() : new LocalStorageDriver();
+
+/**
+ * Media in Postgres.
+ *
+ * Not where video belongs, and it says so. It exists because the alternative
+ * on a host with an ephemeral disk and no bucket is worse: uploads that look
+ * fine, publish fine, and 404 after the next restart. Files are capped at
+ * DB_STORAGE_MAX_BYTES, and `urlFor` points at this server's own media route
+ * rather than a CDN.
+ */
+class DatabaseStorageDriver implements StorageDriver {
+  readonly name = 'db';
+
+  async put(key: string, source: string | Buffer, contentType: string): Promise<StoredObject> {
+    const data = Buffer.isBuffer(source) ? source : await fs.readFile(source);
+    if (data.length > env.DB_STORAGE_MAX_BYTES) {
+      const limitMb = Math.floor(env.DB_STORAGE_MAX_BYTES / 1024 / 1024);
+      // A 400 with the real numbers, not a 500: the uploader can act on this.
+      throw badRequest(
+        `That file is ${Math.round(data.length / 1024 / 1024)} MB, and this deployment accepts up to ${limitMb} MB ` +
+          `per file until object storage is connected.`,
+      );
+    }
+    // Prisma's Bytes maps to Uint8Array; a Buffer is one, but its backing
+    // store is typed loosely enough that the compiler needs the narrowing.
+    const bytes = new Uint8Array(data);
+    await prisma.storedFile.upsert({
+      where: { key },
+      create: { key, contentType, sizeBytes: bytes.length, data: bytes },
+      update: { contentType, sizeBytes: bytes.length, data: bytes },
+    });
+    return { key, url: this.urlFor(key), sizeBytes: bytes.length, contentType };
+  }
+
+  async delete(key: string): Promise<void> {
+    await prisma.storedFile.deleteMany({ where: { key } });
+  }
+
+  async stat(key: string): Promise<{ sizeBytes: number; contentType: string } | null> {
+    const row = await prisma.storedFile.findUnique({
+      where: { key },
+      select: { sizeBytes: true, contentType: true },
+    });
+    return row ?? null;
+  }
+
+  /** The bytes, for the media route to serve. */
+  async read(key: string): Promise<{ data: Buffer; contentType: string } | null> {
+    const row = await prisma.storedFile.findUnique({ where: { key }, select: { data: true, contentType: true } });
+    return row ? { data: Buffer.from(row.data), contentType: row.contentType } : null;
+  }
+
+  urlFor(key: string): string {
+    // Never a CDN base: only this server can serve these bytes.
+    return `${env.STORAGE_PUBLIC_BASE.replace(/\/$/, '')}/${key}`;
+  }
+
+  localPath(): null {
+    return null;
+  }
+}
+
+function selectDriver(): StorageDriver {
+  if (env.STORAGE_DRIVER === 's3') return new S3StorageDriver();
+  if (env.STORAGE_DRIVER === 'db' || storageDowngradedToDatabase) return new DatabaseStorageDriver();
+  return new LocalStorageDriver();
+}
+
+export const storage: StorageDriver = selectDriver();
 
 log.info(`Storage driver: ${storage.name}`);
+if (storageDowngradedToDatabase) {
+  log.warn(
+    'This host does not keep its filesystem between restarts and no object storage is configured, ' +
+      'so uploads are being written to the database instead. That keeps them, but a database is a poor ' +
+      'media store: set S3_BUCKET and the S3_* keys to switch to object storage.',
+  );
+}
+
+/** The database driver, when that is what is in use — the media route needs it. */
+export const databaseStorage: DatabaseStorageDriver | null =
+  storage instanceof DatabaseStorageDriver ? storage : null;
 
 export function mediaKey(kind: 'video' | 'thumbnail' | 'avatar' | 'banner' | 'caption' | 'post', id: string, ext: string) {
   const safeExt = ext.replace(/[^a-z0-9.]/gi, '').replace(/^\.?/, '.');

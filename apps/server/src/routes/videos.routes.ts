@@ -5,7 +5,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import { CATEGORY_SLUGS, VISIBILITIES } from '@faithtube/shared';
 import { prisma } from '../db/client.js';
-import { env } from '../config/env.js';
+import { effectiveMaxUploadBytes, env } from '../config/env.js';
 import { handler } from '../lib/async.js';
 import { badRequest, forbidden, notConfigured, notFound } from '../lib/errors.js';
 import { newStorageKey, newVideoSlug } from '../lib/ids.js';
@@ -43,7 +43,9 @@ const upload = multer({
     },
     filename: (_req, file, cb) => cb(null, `${newStorageKey()}${path.extname(file.originalname).slice(0, 8)}`),
   }),
-  limits: { fileSize: env.MAX_UPLOAD_BYTES },
+  // The limit the deployment can actually honour — smaller than MAX_UPLOAD_BYTES
+  // when media is being kept in the database.
+  limits: { fileSize: effectiveMaxUploadBytes() },
   fileFilter: (_req, file, cb) => {
     const allowed = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-matroska', 'video/mpeg', 'video/x-m4v'];
     if (file.fieldname === 'video' && !allowed.includes(file.mimetype)) {

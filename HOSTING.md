@@ -38,7 +38,11 @@ surprised later.
   Everything is intact; it is just slow for that one request.
 - **The disk is temporary.** Anything written to the server's own disk is
   gone on the next restart. This is why step 3 exists: uploaded videos go to
-  Cloudflare R2, which is permanent, instead of to the server.
+  Cloudflare R2, which is permanent, instead of to the server. If you skip R2,
+  the platform notices it is on a host like this and keeps uploads in the
+  database instead — they survive, but a database is a poor media store, so
+  files are capped (48 MB by default) and you should move to a bucket when you
+  can.
 - **No video processing.** Render's free Node runtime has no `ffmpeg`, so
   FaithTube stores and plays each upload exactly as it arrives — no generated
   thumbnail, no quality ladder, no audio track pulled out for transcription.
@@ -277,7 +281,7 @@ Everything you need is in **Render → your service → Logs**.
 | Site loads, but sign-in does nothing | usually a stale `APP_URL` | clear `APP_URL` and `API_URL` so they auto-detect, or set both to your exact `https://` address |
 | Upload succeeds, video never plays | `CDN_BASE_URL` missing or the R2 public URL is disabled | R2 bucket → Settings → Public Development URL → Enable, then set `CDN_BASE_URL` |
 | `Object storage (S3) is not configured` | an R2 key is missing or mistyped | re-check the four `S3_*` values; the secret is only shown once, so make a new token if you lost it |
-| First visit takes ~40 seconds | the free instance was asleep | normal; upgrade to Render's paid tier, or accept it |
+| First visit takes ~40 seconds | the free instance was asleep | normal. `.github/workflows/keep-warm.yml` pings it every 10 minutes to prevent this — set the `SITE_URL` repository variable to switch it on |
 | Everything is fine but no videos appear | `SEED_ON_BOOT` was never `true` | set it to `true`, save, wait for the restart, then set it back to `false` |
 
 To confirm the server itself is healthy, open

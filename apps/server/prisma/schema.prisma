@@ -637,3 +637,20 @@ model RateLimitCounter {
 
   @@index([expiresAt])
 }
+
+/// Media held in the database.
+///
+/// A last resort, for a deployment with no object storage and no durable disk:
+/// on those hosts the alternative is not "slower uploads", it is a creator's
+/// sermon disappearing at the next restart with nothing to show for it. Rows
+/// are capped by DB_STORAGE_MAX_BYTES so one large file cannot exhaust a small
+/// database. Move to STORAGE_DRIVER=s3 as soon as a bucket exists.
+model StoredFile {
+  key         String   @id
+  contentType String
+  sizeBytes   Int
+  data        Bytes
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+}

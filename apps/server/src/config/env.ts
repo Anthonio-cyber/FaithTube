@@ -48,7 +48,13 @@ const schema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional(),
   GOOGLE_REDIRECT_URI: z.string().optional(),
 
-  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+  /**
+   * local — files on disk (development, or a host with a durable volume)
+   * s3    — any S3-compatible object storage; the right answer in production
+   * db    — media rows in Postgres. For a host with neither a durable disk nor
+   *         object storage, where "local" means silently losing every upload.
+   */
+  STORAGE_DRIVER: z.enum(['local', 's3', 'db']).default('local'),
   STORAGE_LOCAL_DIR: z.string().default('./var/uploads'),
   STORAGE_PUBLIC_BASE: z.string().default('/media'),
   S3_BUCKET: z.string().optional(),
@@ -65,6 +71,13 @@ const schema = z.object({
    * single-key, single-method and only ever handed to the person uploading.
    */
   UPLOAD_URL_TTL_SECONDS: z.coerce.number().default(6 * 60 * 60),
+  /**
+   * Ceiling for a single file under STORAGE_DRIVER=db. A database is not a
+   * media store, and a free Postgres tier is often half a gigabyte in total —
+   * so refuse the file with a clear message rather than filling the database
+   * that also holds every account and comment.
+   */
+  DB_STORAGE_MAX_BYTES: z.coerce.number().default(48 * 1024 * 1024),
 
   MODERATION_PROVIDER: z.enum(['auto', 'heuristic', 'anthropic']).default('auto'),
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -147,6 +160,13 @@ if (hostProvidedUrl) {
   rawEnv.APP_URL ||= hostProvidedUrl;
   rawEnv.API_URL ||= hostProvidedUrl;
 }
+/**
+ * Hosts whose filesystem does not survive a restart. On these, STORAGE_DRIVER
+ * must never be left as "local": uploads would appear to succeed and then be
+ * gone by the next deploy or idle-timeout.
+ */
+const isEphemeralDisk = isServerless || Boolean(process.env.RENDER);
+
 if (isServerless) {
   // A polling worker inside a function would hold the invocation open and still
   // die between requests; the queue is drained inline instead.
@@ -173,11 +193,31 @@ if (isProd && env.JWT_SECRET === 'dev-only-insecure-secret-change-me') {
   process.exit(1);
 }
 
+// Storing media on a disk that is wiped on restart is not a degraded mode, it
+// is data loss that only shows up later. Where object storage has not been
+// configured, the database at least keeps the file. Say so clearly at boot.
+export const storageDowngradedToDatabase =
+  isEphemeralDisk && env.STORAGE_DRIVER === 'local' && !env.S3_BUCKET;
+
 // Browsers silently drop a SameSite=None cookie that is not Secure, which would
 // look like "sign-in does nothing" rather than an error. Fail loudly instead.
 if (env.COOKIE_SAMESITE === 'none' && !env.COOKIE_SECURE) {
   console.error('FATAL: COOKIE_SAMESITE=none requires COOKIE_SECURE=true, or browsers will discard the session cookie.');
   process.exit(1);
+}
+
+/** The largest upload this deployment can actually keep, in bytes. */
+export function effectiveMaxUploadBytes(): number {
+  const driver = storageDowngradedToDatabase ? 'db' : env.STORAGE_DRIVER;
+  return driver === 'db' ? Math.min(env.MAX_UPLOAD_BYTES, env.DB_STORAGE_MAX_BYTES) : env.MAX_UPLOAD_BYTES;
+}
+
+/** The limit as a person should read it — GB once it is large enough to warrant it. */
+export function uploadLimitLabel(): string {
+  const bytes = effectiveMaxUploadBytes();
+  return bytes >= 1024 * 1024 * 1024
+    ? `${Math.round(bytes / 1024 / 1024 / 1024)} GB`
+    : `${Math.round(bytes / 1024 / 1024)} MB`;
 }
 
 /** What the admin dashboard shows on the integrations panel. */

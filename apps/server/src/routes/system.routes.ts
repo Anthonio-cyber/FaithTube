@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { brand, CATEGORIES } from '@faithtube/shared';
 import { prisma } from '../db/client.js';
-import { env, integrationStatus } from '../config/env.js';
+import { effectiveMaxUploadBytes, env, integrationStatus, uploadLimitLabel } from '../config/env.js';
 import { handler } from '../lib/async.js';
 import { hasFfmpeg } from '../services/media.service.js';
 import { moderationProvider } from '../ai/index.js';
@@ -63,8 +63,8 @@ systemRouter.get(
             : 'Model-based review is active, with the on-device classifier as a pre-filter and fallback.',
       },
       limits: {
-        maxUploadBytes: env.MAX_UPLOAD_BYTES,
-        maxUploadLabel: `${Math.round(env.MAX_UPLOAD_BYTES / 1024 / 1024 / 1024)} GB`,
+        maxUploadBytes: effectiveMaxUploadBytes(),
+        maxUploadLabel: uploadLimitLabel(),
       },
     });
   }),

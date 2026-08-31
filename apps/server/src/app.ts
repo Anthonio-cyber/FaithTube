@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import { env, isProd } from './config/env.js';
+import { databaseStorage } from './services/storage.service.js';
 import { attachAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { rateLimit } from './middleware/rateLimit.js';
@@ -110,15 +111,53 @@ export function createApp() {
   app.use(rateLimit({ name: 'global', windowMs: 60_000, max: 600 }));
   app.use(attachAuth);
 
-  // Locally stored media. Behind a CDN in production these never hit the API.
-  app.use(
-    env.STORAGE_PUBLIC_BASE,
-    express.static(path.resolve(process.cwd(), env.STORAGE_LOCAL_DIR), {
-      maxAge: '7d',
-      immutable: true,
-      fallthrough: false,
-    }),
-  );
+  // Media served by this process. Behind a CDN, or on object storage, none of
+  // this is reached — urlFor points elsewhere and the bytes never touch the API.
+  const dbMedia = databaseStorage;
+  if (dbMedia) {
+    // Range support is not optional for video: without it a browser cannot seek,
+    // and some players refuse to start at all.
+    app.get(`${env.STORAGE_PUBLIC_BASE}/*`, async (req, res) => {
+      const key = decodeURIComponent((req.params as Record<string, string>)[0] ?? '');
+      const file = await dbMedia.read(key);
+      if (!file) {
+        res.status(404).json({ error: 'not_found', message: 'That file is no longer available.' });
+        return;
+      }
+
+      res.setHeader('Content-Type', file.contentType);
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+      res.setHeader('Accept-Ranges', 'bytes');
+
+      const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+      if (range) {
+        const start = range[1] ? Number(range[1]) : 0;
+        const end = range[2] ? Math.min(Number(range[2]), file.data.length - 1) : file.data.length - 1;
+        if (Number.isNaN(start) || start > end || start >= file.data.length) {
+          res.status(416).setHeader('Content-Range', `bytes */${file.data.length}`).end();
+          return;
+        }
+        res
+          .status(206)
+          .setHeader('Content-Range', `bytes ${start}-${end}/${file.data.length}`)
+          .setHeader('Content-Length', String(end - start + 1))
+          .end(file.data.subarray(start, end + 1));
+        return;
+      }
+
+      res.setHeader('Content-Length', String(file.data.length));
+      res.end(file.data);
+    });
+  } else {
+    app.use(
+      env.STORAGE_PUBLIC_BASE,
+      express.static(path.resolve(process.cwd(), env.STORAGE_LOCAL_DIR), {
+        maxAge: '7d',
+        immutable: true,
+        fallthrough: false,
+      }),
+    );
+  }
 
   app.use('/api/system', systemRouter);
   app.use('/api/auth', authRouter);
