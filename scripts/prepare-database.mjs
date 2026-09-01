@@ -8,8 +8,7 @@
  * implementation means the two cannot drift.
  */
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -17,33 +16,6 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const serverDir = path.join(repoRoot, 'apps', 'server');
 
-/**
- * Written once the schema has been applied, so a later boot can tell whether
- * there is anything to do. It records a hash of the schema and of the database
- * being pointed at — change either and the work runs again.
- *
- * This matters more than it sounds. A host that stops an idle instance re-runs
- * the start command on every wake, and `prisma db push` costs ~25 seconds even
- * when there is nothing to change. That is time a visitor spends looking at a
- * blank page.
- */
-const markerPath = path.join(serverDir, '.schema-applied');
-
-export function schemaFingerprint() {
-  const schemaPath = path.join(serverDir, 'prisma', 'schema.prisma');
-  const schema = existsSync(schemaPath) ? readFileSync(schemaPath, 'utf8') : '';
-  // The URL is hashed, never stored: the marker ends up in the build output.
-  return createHash('sha256').update(schema).update('\0').update(process.env.DATABASE_URL ?? '').digest('hex');
-}
-
-/** True when this exact schema has already been applied to this exact database. */
-export function schemaAlreadyApplied() {
-  try {
-    return readFileSync(markerPath, 'utf8').trim() === schemaFingerprint();
-  } catch {
-    return false;
-  }
-}
 
 export const log = (message) => console.log(`→ ${message}`);
 export const fail = (message) => {
@@ -86,12 +58,7 @@ function assertProviderMatches() {
   }
 }
 
-/**
- * @param skipSchemaIfApplied  Skip the migration when the build already ran it.
- *        Only the migration: seeding still happens, because it is cheap once
- *        the data is there and self-heals a seed that failed during the build.
- */
-export function prepareDatabase({ requireBuild = true, optional = false, skipSchemaIfApplied = false } = {}) {
+export function prepareDatabase({ requireBuild = true, optional = false } = {}) {
   if (!process.env.DATABASE_URL) {
     // During a build the database may legitimately not be reachable yet; leave
     // it to boot rather than failing the build.
@@ -116,19 +83,11 @@ export function prepareDatabase({ requireBuild = true, optional = false, skipSch
   // history. It is idempotent, so it is safe to repeat on every deploy. Once you
   // start generating migrations, switch this to `prisma migrate deploy`.
   //
-  // It is also the slow part — around 25 seconds even with nothing to change —
-  // which is why a boot that knows the build already did it goes straight past.
-  if (skipSchemaIfApplied && schemaAlreadyApplied()) {
-    log('Schema already applied by the build — skipping the migration.');
-  } else {
-    log('Applying the database schema…');
-    run('npx', ['--no-install', 'prisma', 'db', 'push', '--skip-generate']);
-    try {
-      writeFileSync(markerPath, schemaFingerprint());
-    } catch {
-      // Not fatal: the next boot just does the work again.
-    }
-  }
+  // It is also the slow part — around 25 seconds against a hosted database even
+  // when there is nothing to change — which is why start-hosted.mjs checks
+  // whether any of this is needed before calling in here at all.
+  log('Applying the database schema…');
+  run('npx', ['--no-install', 'prisma', 'db', 'push', '--skip-generate']);
 
   // Seeding is opt-in, and should be switched off again once the first deploy
   // has created the admin account. A failed seed is not fatal: an

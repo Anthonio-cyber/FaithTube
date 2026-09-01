@@ -28,9 +28,38 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { log, prepareDatabase, serverDir } from './prepare-database.mjs';
 
-// Hosts that only ever run the start command (the Docker image, a bare
-// `npm start`) find no marker and do the full job here, exactly as before.
-prepareDatabase({ skipSchemaIfApplied: true });
+/**
+ * Is the database already set up? One query answers it.
+ *
+ * This deliberately asks the database rather than trusting a file written at
+ * build time: a marker only tells you what some earlier process believed, and
+ * if the build output does not reach the runtime — which is exactly what
+ * happened on the first attempt at this — you silently pay for a migration and
+ * a full re-seed on every single wake. The database is the thing whose state
+ * actually matters, so ask it. One round trip, and it is right by construction.
+ */
+async function databaseIsReady() {
+  if (!process.env.DATABASE_URL) return false;
+  let prisma;
+  try {
+    const { PrismaClient } = await import('@prisma/client');
+    prisma = new PrismaClient();
+    // Categories are created by the seed, so a non-zero count means both that
+    // the schema exists and that the seed has run.
+    return (await prisma.category.count()) > 0;
+  } catch {
+    // Missing table, unreachable database, anything: fall through and do the work.
+    return false;
+  } finally {
+    await prisma?.$disconnect().catch(() => {});
+  }
+}
+
+if (await databaseIsReady()) {
+  log('Database is already set up — starting straight up.');
+} else {
+  prepareDatabase();
+}
 
 // The server is imported rather than spawned, so this process *becomes* the
 // server: one PID, and the SIGTERM a host sends on shutdown reaches the
