@@ -114,6 +114,33 @@ export function clearSessionCookie(res: Response) {
   res.clearCookie(SESSION_COOKIE, { path: '/', domain: env.COOKIE_DOMAIN });
 }
 
+/**
+ * The OAuth `state` parameter, bound to the browser that started the flow.
+ *
+ * Without this, anyone can hand a victim a link carrying their own Google
+ * authorization code and have the victim's browser complete the sign-in —
+ * login CSRF, which quietly lands the victim in the attacker's account. The
+ * state travels to Google and back in the URL; the copy in this cookie is what
+ * proves the same browser began the flow. Ten minutes is longer than any real
+ * consent screen and short enough not to linger.
+ */
+export const OAUTH_STATE_COOKIE = 'ft_oauth_state';
+
+export function setOAuthStateCookie(res: Response, state: string) {
+  res.cookie(OAUTH_STATE_COOKIE, state, {
+    httpOnly: true,
+    sameSite: env.COOKIE_SAMESITE,
+    secure: env.COOKIE_SECURE,
+    domain: env.COOKIE_DOMAIN,
+    maxAge: 10 * 60 * 1000,
+    path: '/',
+  });
+}
+
+export function clearOAuthStateCookie(res: Response) {
+  res.clearCookie(OAUTH_STATE_COOKIE, { path: '/', domain: env.COOKIE_DOMAIN });
+}
+
 const RESERVED_USERNAMES = new Set([
   'admin', 'administrator', 'moderator', 'faithtube', 'support', 'help', 'api', 'watch', 'channel',
   'studio', 'premium', 'settings', 'about', 'terms', 'privacy', 'live', 'shorts', 'clips', 'search',

@@ -5,6 +5,7 @@ import { logger } from './lib/logger.js';
 import { prisma } from './db/client.js';
 import { startWorker, stopWorker } from './workers/videoWorker.js';
 import { moderationProvider } from './ai/index.js';
+import { removeDemoContent } from './db/removeDemoContent.js';
 
 const log = logger('server');
 
@@ -13,6 +14,10 @@ async function main() {
 
   // Fail fast on a bad database URL rather than 500ing on the first request.
   await prisma.$connect();
+
+  // One-time tidy-up of sample content left by an older seed. A single lookup
+  // once it has run.
+  await removeDemoContent();
 
   const server = app.listen(env.PORT, () => {
     log.info(`${brand.name} API listening on http://localhost:${env.PORT}`);

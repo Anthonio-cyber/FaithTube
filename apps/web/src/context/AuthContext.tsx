@@ -60,12 +60,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * server, so the client secret never reaches the browser. When Google sign-in
    * is not configured the API says so and we surface that message rather than
    * failing silently.
+   *
+   * The `state` is issued by the server and held in an httpOnly cookie, so the
+   * browser never handles it — a value this page could read and write would not
+   * prove much about who started the flow.
    */
   const signInWithGoogle = useCallback(async () => {
-    const state = crypto.randomUUID();
-    sessionStorage.setItem('ft_oauth_state', state);
     try {
-      const data = await api<{ url: string }>('/auth/google/url', { query: { state } });
+      const data = await api<{ url: string }>('/auth/google/url');
       window.location.href = data.url;
     } catch (err) {
       if (err instanceof ApiError && err.notConfigured) {

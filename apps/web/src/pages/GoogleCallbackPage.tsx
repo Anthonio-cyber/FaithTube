@@ -32,15 +32,13 @@ export default function GoogleCallbackPage() {
       setError('Google did not return an authorization code.');
       return;
     }
-    // CSRF check: the state we generated must come back unchanged.
-    if (state && sessionStorage.getItem('ft_oauth_state') && state !== sessionStorage.getItem('ft_oauth_state')) {
-      setError('That sign-in request could not be verified. Please try again.');
+    if (!state) {
+      setError('Google did not return the verification value we sent. Please try again.');
       return;
     }
 
     api<{ user: never; needsOnboarding: boolean }>('/auth/google/callback', { method: 'POST', body: { code, state } })
       .then((data) => {
-        sessionStorage.removeItem('ft_oauth_state');
         setUser(data.user);
         navigate(data.needsOnboarding ? '/welcome' : '/', { replace: true });
       })

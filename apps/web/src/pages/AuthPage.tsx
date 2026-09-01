@@ -140,7 +140,14 @@ export default function AuthPage({ mode }: { mode: 'signin' | 'signup' }) {
           </p>
 
           <div className="mt-6 space-y-3">
-            <Button variant="outline" fullWidth size="lg" onClick={onGoogle} type="button">
+            <Button
+              variant="outline"
+              fullWidth
+              size="lg"
+              onClick={onGoogle}
+              type="button"
+              disabled={!features.googleSignIn}
+            >
               <GoogleGlyph />
               Continue with Google
             </Button>

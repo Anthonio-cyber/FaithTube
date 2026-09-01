@@ -129,6 +129,12 @@ const schema = z.object({
   WORKER_POLL_MS: z.coerce.number().default(1500),
 
   RATE_LIMIT_ENABLED: boolFromEnv(true),
+  /**
+   * Sample channels and videos for local development. Never for a real
+   * deployment: the sample videos have no video file behind them, so they
+   * would advertise content that cannot be played.
+   */
+  SEED_DEMO_CONTENT: boolFromEnv(false),
   SEED_ADMIN_EMAIL: z.string().default('admin@faithtube.example'),
   SEED_ADMIN_PASSWORD: z.string().default('ChangeMe!2024'),
 });

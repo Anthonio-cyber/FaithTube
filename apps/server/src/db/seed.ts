@@ -68,6 +68,19 @@ async function main() {
     update: { role: 'SUPER_ADMIN' },
   });
 
+  log.info(`Administrator ready — ${admin.email}`);
+
+  // Everything below this line is sample content: eight invented ministries and
+  // twenty-five videos that have no video behind them. That is fine on a
+  // developer's machine and wrong on a real deployment, where it would fill the
+  // home page with channels nobody can watch. Off unless asked for.
+  if (!env.SEED_DEMO_CONTENT) {
+    log.info('Seed complete — categories, settings and the administrator account.');
+    log.info(`Sign in as admin: ${env.SEED_ADMIN_EMAIL} / ${env.SEED_ADMIN_PASSWORD}`);
+    log.info('Set SEED_DEMO_CONTENT=true for sample channels and videos in development.');
+    return;
+  }
+
   const moderator = await prisma.user.upsert({
     where: { email: 'moderator@faithtube.example' },
     create: {
@@ -98,7 +111,7 @@ async function main() {
     update: {},
   });
 
-  log.info(`Staff ready — admin: ${admin.email}, moderator: ${moderator.email}, viewer: ${viewer.email}`);
+  log.info(`Sample staff ready — moderator: ${moderator.email}, viewer: ${viewer.email}`);
 
   // --------------------------------------------------------------- channels
   const channelMap = new Map<string, string>();

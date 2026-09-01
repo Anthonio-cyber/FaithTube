@@ -73,6 +73,9 @@ export async function exchangeGoogleCode(code: string): Promise<GoogleProfile> {
   // endpoint in exchange for our client secret, so its payload is trustworthy
   // here; we still confirm audience and expiry before using it.
   const payload = decodeJwtPayload(tokens.id_token);
+  if (payload.iss !== 'https://accounts.google.com' && payload.iss !== 'accounts.google.com') {
+    throw badRequest('That identity token was not issued by Google.');
+  }
   if (payload.aud !== env.GOOGLE_CLIENT_ID) throw badRequest('That Google token was issued for a different application.');
   if (typeof payload.exp === 'number' && payload.exp * 1000 < Date.now()) throw badRequest('That Google sign-in has expired.');
   if (!payload.email) throw badRequest('Your Google account did not share an email address.');
@@ -88,6 +91,7 @@ export async function exchangeGoogleCode(code: string): Promise<GoogleProfile> {
 
 interface GoogleIdTokenPayload {
   sub?: string;
+  iss?: string;
   aud?: string;
   exp?: number;
   email?: string;

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
 import { CATEGORY_SLUGS } from '@faithtube/shared';
@@ -5,17 +6,20 @@ import { prisma } from '../db/client.js';
 import { env } from '../config/env.js';
 import { handler } from '../lib/async.js';
 import { badRequest, conflict, notConfigured, unauthorized } from '../lib/errors.js';
-import { hashIp } from '../lib/crypto.js';
+import { hashIp, randomToken } from '../lib/crypto.js';
 import { stringifyJson } from '../lib/json.js';
 import { authLimiter } from '../middleware/rateLimit.js';
 import { attachAuth, requireAuth } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import {
+  OAUTH_STATE_COOKIE,
   assertNotSuspended,
   assertUsernameAvailable,
   assertPasswordStrength,
+  clearOAuthStateCookie,
   clearSessionCookie,
   createSession,
+  setOAuthStateCookie,
   hashPassword,
   revokeSession,
   setSessionCookie,
@@ -157,25 +161,58 @@ authRouter.get(
           'Until then, email sign-in works normally.',
       );
     }
-    const state = String(req.query.state ?? '');
+    // The state is generated here, not accepted from the caller: its whole
+    // purpose is to be a value only this server and this browser know.
+    const state = randomToken(24);
+    setOAuthStateCookie(res, state);
     res.json({ url: googleAuthUrl(state) });
   }),
 );
 
-const googleCallbackSchema = z.object({ code: z.string().min(10), state: z.string().optional() });
+const googleCallbackSchema = z.object({ code: z.string().min(10), state: z.string().min(1) });
 
 authRouter.post(
   '/google/callback',
   authLimiter,
   validateBody(googleCallbackSchema),
   handler(async (req, res) => {
-    const { code } = req.body as z.infer<typeof googleCallbackSchema>;
+    const { code, state } = req.body as z.infer<typeof googleCallbackSchema>;
+
+    // Prove this browser started the flow before spending a code on it.
+    const expectedState = String(req.cookies?.[OAUTH_STATE_COOKIE] ?? '');
+    clearOAuthStateCookie(res);
+    const given = Buffer.from(state);
+    const expected = Buffer.from(expectedState);
+    if (!expectedState || given.length !== expected.length || !timingSafeEqual(given, expected)) {
+      throw badRequest('That sign-in request could not be verified. Please start again.');
+    }
+
     const profile = await exchangeGoogleCode(code);
 
+    // Match on the Google account id first. Falling back to the email address
+    // is what lets someone who signed up with a password later use Google —
+    // but only when Google says it has verified that address. Without that
+    // check, an account whose email Google has not confirmed could be used to
+    // take over an existing FaithTube account with the same address.
     let user = await prisma.user.findFirst({
-      where: { OR: [{ googleId: profile.sub }, { email: profile.email }] },
+      where: { googleId: profile.sub },
       include: { channel: true, premium: true },
     });
+    if (!user && profile.emailVerified) {
+      user = await prisma.user.findFirst({
+        where: { email: profile.email },
+        include: { channel: true, premium: true },
+      });
+    }
+    if (!user && !profile.emailVerified) {
+      const existing = await prisma.user.findFirst({ where: { email: profile.email }, select: { id: true } });
+      if (existing) {
+        throw badRequest(
+          'Google has not verified the email address on that account, so we cannot link it to your ' +
+            'existing FaithTube account. Sign in with your password instead.',
+        );
+      }
+    }
 
     let created = false;
     if (!user) {
