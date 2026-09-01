@@ -18,7 +18,10 @@ export const serverDir = path.join(repoRoot, 'apps', 'server');
 
 
 export const log = (message) => console.log(`→ ${message}`);
+let failuresAreFatal = true;
+
 export const fail = (message) => {
+  if (!failuresAreFatal) throw new Error(message);
   console.error(`FATAL: ${message}`);
   process.exit(1);
 };
@@ -59,6 +62,15 @@ function assertProviderMatches() {
 }
 
 export function prepareDatabase({ requireBuild = true, optional = false } = {}) {
+  failuresAreFatal = !optional;
+  try {
+    return prepareDatabaseInner({ requireBuild, optional });
+  } finally {
+    failuresAreFatal = true;
+  }
+}
+
+function prepareDatabaseInner({ requireBuild, optional }) {
   if (!process.env.DATABASE_URL) {
     // During a build the database may legitimately not be reachable yet; leave
     // it to boot rather than failing the build.
@@ -109,5 +121,20 @@ export function prepareDatabase({ requireBuild = true, optional = false } = {}) 
 // host, not just serverless ones. Doing it at build time rather than at boot is
 // what keeps a wake-from-idle fast.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  prepareDatabase({ optional: process.argv.includes('--optional') });
+  const optional = process.argv.includes('--optional');
+  if (optional) {
+    // Never fail a build over the database. The point of doing this at build
+    // time is speed, not correctness: start-hosted.mjs checks the database
+    // itself and does whatever is still outstanding. A build that dies here
+    // takes the whole deployment with it and leaves the previous version
+    // serving — which is precisely how three commits silently failed to ship.
+    try {
+      prepareDatabase({ optional: true });
+    } catch (error) {
+      console.error(`Skipping build-time database setup: ${error?.message ?? error}`);
+      console.error('It will be done at start-up instead.');
+    }
+  } else {
+    prepareDatabase();
+  }
 }
