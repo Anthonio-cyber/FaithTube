@@ -17,6 +17,7 @@ import { commentsRouter } from './routes/comments.routes.js';
 import { libraryRouter } from './routes/library.routes.js';
 import { discoverRouter } from './routes/discover.routes.js';
 import { searchRouter } from './routes/search.routes.js';
+import { assistantRouter } from './routes/assistant.routes.js';
 import { notificationsRouter } from './routes/notifications.routes.js';
 import { reportsRouter } from './routes/reports.routes.js';
 import { premiumRouter } from './routes/premium.routes.js';
@@ -168,6 +169,7 @@ export function createApp() {
   app.use('/api/library', libraryRouter);
   app.use('/api/discover', discoverRouter);
   app.use('/api/search', searchRouter);
+  app.use('/api/assistant', assistantRouter);
   app.use('/api/notifications', notificationsRouter);
   app.use('/api/reports', reportsRouter);
   app.use('/api/studio', studioRouter);

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import type { VideoSummary } from '@faithtube/shared';
 import { api } from '@/lib/api';
 import { useConfig } from '@/context/ConfigContext';
@@ -45,6 +45,112 @@ const EXAMPLES = [
  * boxed, labelled, and carries its disclaimer. Nothing generated is ever styled
  * to look like the Bible text.
  */
+interface AssistantReply {
+  answer: string;
+  scripture: Array<{ reference: string; text: string }>;
+  videos: VideoSummary[];
+  composedBy: 'model' | 'scripture';
+  careNotice: string | null;
+}
+
+/**
+ * A place to ask a question in plain words and be pointed at Scripture and at
+ * teaching here. It never answers from nothing: what it shows is what it found.
+ */
+function AskPanel() {
+  const [question, setQuestion] = useState('');
+  const ask = useMutation({
+    mutationFn: (value: string) => api<AssistantReply>('/assistant/ask', { method: 'POST', body: { question: value } }),
+  });
+  const reply = ask.data;
+
+  return (
+    <Card className="mb-8">
+      <div className="flex items-start gap-3">
+        <IconSparkle className="mt-0.5 h-5 w-5 shrink-0 text-gold" />
+        <div className="min-w-0 flex-1">
+          <h2 className="font-display text-lg font-semibold">Ask a question</h2>
+          <p className="mt-1 text-sm leading-relaxed ft-muted">
+            Put it in your own words. You will get Scripture on the subject and any teaching here that speaks to it.
+          </p>
+
+          <form
+            className="mt-4 flex flex-col gap-2 sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (question.trim().length >= 3) ask.mutate(question.trim());
+            }}
+          >
+            <input
+              value={question}
+              onChange={(event) => setQuestion(event.target.value)}
+              placeholder="How do I forgive someone who hurt me?"
+              aria-label="Your question"
+              maxLength={500}
+              className="min-w-0 flex-1 rounded-xl border border-navy/15 bg-white px-4 py-2.5 text-sm outline-none transition focus:border-gold dark:border-white/15 dark:bg-navy-deep"
+            />
+            <Button type="submit" variant="gold" disabled={ask.isPending || question.trim().length < 3}>
+              {ask.isPending ? 'Looking…' : 'Ask'}
+            </Button>
+          </form>
+
+          {ask.isError ? (
+            <p role="alert" className="mt-3 text-sm text-danger">
+              That question could not be answered just now. Please try again.
+            </p>
+          ) : null}
+
+          {reply ? (
+            <div className="mt-5 space-y-4">
+              {reply.careNotice ? (
+                <p className="rounded-xl bg-danger/10 p-4 text-sm leading-relaxed text-danger ring-1 ring-danger/25">
+                  {reply.careNotice}
+                </p>
+              ) : null}
+
+              {reply.answer.split('\n\n').map((paragraph, index) => (
+                <p key={index} className="text-sm leading-relaxed">
+                  {paragraph}
+                </p>
+              ))}
+
+              {reply.scripture.length ? (
+                <ul className="space-y-2">
+                  {reply.scripture.map((verse) => (
+                    <li key={verse.reference} className="rounded-xl bg-navy/[0.03] p-3.5 dark:bg-white/[0.03]">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-gold-deep dark:text-gold-soft">
+                        {verse.reference}
+                      </p>
+                      <p className="mt-1 text-sm leading-relaxed">{verse.text}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {reply.videos.length ? (
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide ft-muted">Teaching on this</h3>
+                  <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                    {reply.videos.map((video) => (
+                      <VideoCard key={video.id} video={video} />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {reply.composedBy === 'scripture' && reply.scripture.length > 0 ? (
+                <p className="text-xs ft-muted">
+                  These passages were matched to your words. Scripture is quoted as written — nothing here is composed.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export default function BibleSearchPage() {
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
@@ -69,6 +175,8 @@ export default function BibleSearchPage() {
         title="Bible Search"
         description="Ask a question in your own words, or name a passage. You will get the Scripture itself, alongside teaching from FaithTube creators on it."
       />
+
+      <AskPanel />
 
       <form onSubmit={submit} role="search" className="mb-8">
         <label htmlFor="bible-query" className="sr-only">

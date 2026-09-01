@@ -259,7 +259,11 @@ export function integrationStatus() {
     stripe: Boolean(env.STRIPE_SECRET_KEY),
     anthropicModeration: Boolean(env.ANTHROPIC_API_KEY),
     transcription: env.TRANSCRIPTION_PROVIDER === 'whisper' || Boolean(env.WHISPER_API_URL && env.WHISPER_API_KEY),
-    objectStorage: env.STORAGE_DRIVER === 's3' ? Boolean(env.S3_BUCKET && env.S3_ACCESS_KEY_ID) : true,
+    // Only real object storage counts. This used to report `true` for any
+    // driver that was not s3, so a deployment keeping media on a temporary disk
+    // — or in its database — showed a green "configured", which is the one
+    // thing this panel exists to prevent.
+    objectStorage: effectiveStorageDriver === 's3',
     cdn: Boolean(env.CDN_BASE_URL),
     liveIngest: Boolean(env.LIVE_INGEST_BASE && env.LIVE_PLAYBACK_BASE),
   };
