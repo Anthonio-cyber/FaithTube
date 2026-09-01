@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { presignUrl } from '../lib/awsSign.js';
-import { env, storageDowngradedToDatabase } from '../config/env.js';
+import { effectiveStorageDriver, env, storageDowngradedToDatabase, storageUpgradedToObjectStorage } from '../config/env.js';
 import { prisma } from '../db/client.js';
 import { badRequest, notConfigured } from '../lib/errors.js';
 import { logger } from '../lib/logger.js';
@@ -272,14 +272,17 @@ class DatabaseStorageDriver implements StorageDriver {
 }
 
 function selectDriver(): StorageDriver {
-  if (env.STORAGE_DRIVER === 's3') return new S3StorageDriver();
-  if (env.STORAGE_DRIVER === 'db' || storageDowngradedToDatabase) return new DatabaseStorageDriver();
+  if (effectiveStorageDriver === 's3') return new S3StorageDriver();
+  if (effectiveStorageDriver === 'db') return new DatabaseStorageDriver();
   return new LocalStorageDriver();
 }
 
 export const storage: StorageDriver = selectDriver();
 
 log.info(`Storage driver: ${storage.name}`);
+if (storageUpgradedToObjectStorage) {
+  log.info('Object storage is configured, so uploads go there rather than to this host\'s temporary disk.');
+}
 if (storageDowngradedToDatabase) {
   log.warn(
     'This host does not keep its filesystem between restarts and no object storage is configured, ' +

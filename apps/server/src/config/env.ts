@@ -199,11 +199,36 @@ if (isProd && env.JWT_SECRET === 'dev-only-insecure-secret-change-me') {
   process.exit(1);
 }
 
-// Storing media on a disk that is wiped on restart is not a degraded mode, it
-// is data loss that only shows up later. Where object storage has not been
-// configured, the database at least keeps the file. Say so clearly at boot.
-export const storageDowngradedToDatabase =
-  isEphemeralDisk && env.STORAGE_DRIVER === 'local' && !env.S3_BUCKET;
+const objectStorageConfigured = Boolean(
+  env.S3_BUCKET && env.S3_REGION && env.S3_ACCESS_KEY_ID && env.S3_SECRET_ACCESS_KEY,
+);
+
+/**
+ * Where media actually goes, which is not always what STORAGE_DRIVER says.
+ *
+ * On a host whose disk is wiped on restart, "local" is not a slower option, it
+ * is silent data loss — an upload that publishes fine and 404s an hour later.
+ * So on those hosts the setting is treated as "no preference expressed" and the
+ * best durable option wins: object storage when it is configured, the database
+ * otherwise. Anything other than "local" is an explicit choice and is honoured
+ * as written, and on a host with a real disk "local" means local.
+ *
+ * The alternative — obeying the literal setting — has a nasty failure mode:
+ * adding S3 credentials while STORAGE_DRIVER stayed "local" would switch the
+ * database fallback off and send uploads to the disk that eats them, so
+ * configuring storage properly would be the thing that broke it.
+ */
+export const effectiveStorageDriver: 'local' | 's3' | 'db' =
+  env.STORAGE_DRIVER !== 'local'
+    ? env.STORAGE_DRIVER
+    : !isEphemeralDisk
+      ? 'local'
+      : objectStorageConfigured
+        ? 's3'
+        : 'db';
+
+export const storageDowngradedToDatabase = effectiveStorageDriver === 'db' && env.STORAGE_DRIVER !== 'db';
+export const storageUpgradedToObjectStorage = effectiveStorageDriver === 's3' && env.STORAGE_DRIVER !== 's3';
 
 // Browsers silently drop a SameSite=None cookie that is not Secure, which would
 // look like "sign-in does nothing" rather than an error. Fail loudly instead.
@@ -214,8 +239,9 @@ if (env.COOKIE_SAMESITE === 'none' && !env.COOKIE_SECURE) {
 
 /** The largest upload this deployment can actually keep, in bytes. */
 export function effectiveMaxUploadBytes(): number {
-  const driver = storageDowngradedToDatabase ? 'db' : env.STORAGE_DRIVER;
-  return driver === 'db' ? Math.min(env.MAX_UPLOAD_BYTES, env.DB_STORAGE_MAX_BYTES) : env.MAX_UPLOAD_BYTES;
+  return effectiveStorageDriver === 'db'
+    ? Math.min(env.MAX_UPLOAD_BYTES, env.DB_STORAGE_MAX_BYTES)
+    : env.MAX_UPLOAD_BYTES;
 }
 
 /** The limit as a person should read it — GB once it is large enough to warrant it. */
