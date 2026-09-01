@@ -48,6 +48,10 @@ jobs:
           echo "HTTP $code"
           cat /tmp/health.json 2>/dev/null || true
           echo
+          # The commit and uptime together say whether a push actually shipped:
+          # a deploy restarts the process, so a low uptime on a new commit is
+          # what a successful deploy looks like from outside.
+          echo "commit serving: $(grep -o '\"commit\":\"[^\"]*\"' /tmp/health.json 2>/dev/null || echo 'not reported')"
 
           # A sleeping instance that woke up is a success. Anything else is a
           # real failure and should be visible in the Actions tab.

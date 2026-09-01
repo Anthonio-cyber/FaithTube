@@ -28,6 +28,10 @@ systemRouter.get(
       database,
       uptimeSeconds: Math.round(process.uptime()),
       version: process.env.npm_package_version ?? '0.1.0',
+      // Which build is actually serving. Without this there is no way to tell a
+      // deployed change from one that silently never shipped — uptime alone
+      // cannot distinguish "deployed and restarted" from "never deployed".
+      commit: (process.env.RENDER_GIT_COMMIT ?? process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7) || null,
     });
   }),
 );
