@@ -106,8 +106,8 @@ liveRouter.post(
       ingestConfigured: Boolean(env.LIVE_INGEST_BASE && env.LIVE_PLAYBACK_BASE),
       setupNote: env.LIVE_INGEST_BASE
         ? 'Point your encoder at the ingest URL using this stream key. Save the key now — it is not shown again.'
-        : 'No streaming ingest service is configured on this deployment. An administrator can set LIVE_INGEST_BASE and ' +
-          'LIVE_PLAYBACK_BASE to an RTMP/HLS provider to enable broadcasting.',
+        : 'Live broadcasting is not switched on for this site yet. You can still schedule this stream and open its ' +
+          'chat — it just cannot receive video until an administrator connects a streaming service.',
     });
   }),
 );

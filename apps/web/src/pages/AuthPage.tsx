@@ -139,30 +139,27 @@ export default function AuthPage({ mode }: { mode: 'signin' | 'signup' }) {
               : 'Create an account to watch, follow, comment and — if God has called you to it — teach.'}
           </p>
 
-          <div className="mt-6 space-y-3">
-            <Button
-              variant="outline"
-              fullWidth
-              size="lg"
-              onClick={onGoogle}
-              type="button"
-              disabled={!features.googleSignIn}
-            >
-              <GoogleGlyph />
-              Continue with Google
-            </Button>
-            {!features.googleSignIn ? (
-              <p className="text-center text-xs ft-muted">
-                Google sign-in is not configured on this deployment. Email sign-in below works normally.
-              </p>
-            ) : null}
-          </div>
+          {/* With no Google credentials there is no second option, so neither
+              the button nor the "or" that separates it from the form belongs
+              on the page. */}
+          {features.googleSignIn ? (
+            <>
+              <div className="mt-6 space-y-3">
+                <Button variant="outline" fullWidth size="lg" onClick={onGoogle} type="button">
+                  <GoogleGlyph />
+                  Continue with Google
+                </Button>
+              </div>
 
-          <div className="my-6 flex items-center gap-3">
-            <span className="h-px flex-1 bg-navy/10 dark:bg-white/10" />
-            <span className="text-xs ft-muted">or with email</span>
-            <span className="h-px flex-1 bg-navy/10 dark:bg-white/10" />
-          </div>
+              <div className="my-6 flex items-center gap-3">
+                <span className="h-px flex-1 bg-navy/10 dark:bg-white/10" />
+                <span className="text-xs ft-muted">or with email</span>
+                <span className="h-px flex-1 bg-navy/10 dark:bg-white/10" />
+              </div>
+            </>
+          ) : (
+            <div className="mt-6" />
+          )}
 
           <form onSubmit={onSubmit} className="space-y-4">
             {mode === 'signup' ? (

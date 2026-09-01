@@ -71,7 +71,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.location.href = data.url;
     } catch (err) {
       if (err instanceof ApiError && err.notConfigured) {
-        throw new Error(err.howToFix ?? err.message);
+        // howToFix names environment variables. That belongs in the admin
+        // dashboard and the server log, not in front of someone signing in.
+        throw new Error('Signing in with Google is not available on this site. Please use your email address.');
       }
       throw err;
     }

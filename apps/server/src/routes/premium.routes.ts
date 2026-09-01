@@ -34,11 +34,13 @@ premiumRouter.get(
     res.json({
       plan: { ...plan, displayPrice: formatPrice(plan.amountMinor, plan.currency) },
       checkoutAvailable: stripeConfigured(),
-      // The UI shows a clear "payments not configured" state rather than a
-      // button that silently does nothing.
+      // Visitors get a plain sentence, not an internal configuration name.
+      // Naming the missing key tells someone browsing the site nothing they can
+      // act on, and tells anyone probing it exactly how the deployment is put
+      // together. The admin dashboard reports what is actually missing.
       checkoutUnavailableReason: stripeConfigured()
         ? null
-        : 'Card payments are not configured on this deployment yet. An administrator can enable them by setting STRIPE_SECRET_KEY.',
+        : 'Premium is not open for new members on this site yet.',
       subscription: subscription
         ? {
             status: subscription.status,
