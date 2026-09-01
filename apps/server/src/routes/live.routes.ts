@@ -9,6 +9,7 @@ import { randomToken, sha256 } from '../lib/crypto.js';
 import { attachAuth, auth, requireAuth } from '../middleware/auth.js';
 import { writeLimiter } from '../middleware/rateLimit.js';
 import { validateBody } from '../middleware/validate.js';
+import { assertPlaybackUrlAllowed, playbackHosts } from '../services/livePlayback.service.js';
 import { moderateComment } from '../ai/commentModerator.js';
 import { notifySubscribers } from '../services/notification.service.js';
 import { recordAudit } from '../services/audit.service.js';
@@ -59,6 +60,12 @@ liveRouter.get(
 );
 
 const createSchema = z.object({
+  /**
+   * Where this stream can be watched, when the creator brings their own
+   * streaming service rather than using one configured for the whole site.
+   * Checked against the administrator's approved hosts.
+   */
+  playbackUrl: z.string().max(500).optional(),
   title: z.string().min(3).max(140),
   description: z.string().max(3000).default(''),
   categorySlug: z.enum(CATEGORY_SLUGS as [string, ...string[]]).default('worship'),
@@ -82,6 +89,13 @@ liveRouter.post(
     if (!channel) throw badRequest('Create a channel before going live.');
     if (channel.suspended) throw forbidden('Live streaming is paused on this channel.');
 
+    // A platform-wide ingest, when configured, takes precedence: it is the one
+    // this deployment can actually see and moderate through. Otherwise the
+    // creator's own approved playback address is used.
+    const ownPlayback = body.playbackUrl?.trim()
+      ? assertPlaybackUrlAllowed(body.playbackUrl.trim())
+      : null;
+
     const streamKey = randomToken(24);
     const stream = await prisma.livestream.create({
       data: {
@@ -93,7 +107,9 @@ liveRouter.post(
         chatEnabled: body.chatEnabled,
         streamKeyHash: sha256(streamKey),
         ingestUrl: env.LIVE_INGEST_BASE ?? null,
-        playbackUrl: env.LIVE_PLAYBACK_BASE ? `${env.LIVE_PLAYBACK_BASE.replace(/\/$/, '')}/${channel.handle}.m3u8` : null,
+        playbackUrl: env.LIVE_PLAYBACK_BASE
+          ? `${env.LIVE_PLAYBACK_BASE.replace(/\/$/, '')}/${channel.handle}.m3u8`
+          : ownPlayback,
       },
     });
 
@@ -104,10 +120,16 @@ liveRouter.post(
       // Without an ingest service the platform still manages the stream record,
       // schedule and chat; it just cannot receive video.
       ingestConfigured: Boolean(env.LIVE_INGEST_BASE && env.LIVE_PLAYBACK_BASE),
+      // What a creator may supply themselves, so the studio can offer the field
+      // only when it will be accepted.
+      approvedPlaybackHosts: playbackHosts(),
       setupNote: env.LIVE_INGEST_BASE
         ? 'Point your encoder at the ingest URL using this stream key. Save the key now — it is not shown again.'
-        : 'Live broadcasting is not switched on for this site yet. You can still schedule this stream and open its ' +
-          'chat — it just cannot receive video until an administrator connects a streaming service.',
+        : playbackHosts().length
+          ? 'This site has no streaming service of its own, so stream through your usual provider and paste the ' +
+            'playback address here. Approved hosts: ' + playbackHosts().join(', ') + '.'
+          : 'Live broadcasting is not switched on for this site yet. You can still schedule this stream and open its ' +
+            'chat — it just cannot receive video until an administrator approves a streaming host.',
     });
   }),
 );

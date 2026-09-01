@@ -11,6 +11,7 @@ import { parseJson, stringifyJson } from '../lib/json.js';
 import { integrationStatus } from '../config/env.js';
 import { platformAnalytics } from '../services/analytics.service.js';
 import { recordAudit } from '../services/audit.service.js';
+import { playbackHosts, setPlaybackHosts } from '../services/livePlayback.service.js';
 import { notify, notifyAllUsers } from '../services/notification.service.js';
 import { publishVideo } from '../services/pipeline.service.js';
 import { currentPlan, updatePlan } from '../services/stripe.service.js';
@@ -825,5 +826,41 @@ adminRouter.post(
     });
     await recordAudit({ action: 'announcement.publish', summary: `Announcement sent to ${delivered} members: ${body.title}`, req });
     res.json({ ok: true, delivered });
+  }),
+);
+
+// ------------------------------------------------- live playback allowlist
+
+/**
+ * The hosts creators may point a live stream at.
+ *
+ * This is a security control, not a preference: whatever is listed here is
+ * added to the content security policy and embedded in the player, so it is
+ * restricted to the same permission that manages the rest of the platform's
+ * settings.
+ */
+adminRouter.get(
+  '/live/playback-hosts',
+  requirePermission('settings:manage'),
+  handler(async (_req, res) => {
+    res.json({ hosts: playbackHosts() });
+  }),
+);
+
+adminRouter.put(
+  '/live/playback-hosts',
+  requirePermission('settings:manage'),
+  validateBody(z.object({ hosts: z.array(z.string().max(200)).max(20) })),
+  handler(async (req, res) => {
+    const { hosts } = req.body as { hosts: string[] };
+    const saved = await setPlaybackHosts(hosts);
+    await recordAudit({
+      action: 'live.playbackHosts.update',
+      targetType: 'SETTING',
+      targetId: 'live.playbackHosts',
+      summary: saved.length ? `Approved live playback hosts: ${saved.join(', ')}` : 'Cleared the live playback allowlist',
+      req,
+    });
+    res.json({ hosts: saved });
   }),
 );

@@ -6,6 +6,7 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import { env, isProd } from './config/env.js';
 import { databaseStorage } from './services/storage.service.js';
+import { playbackOrigins } from './services/livePlayback.service.js';
 import { attachAuth } from './middleware/auth.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { rateLimit } from './middleware/rateLimit.js';
@@ -58,8 +59,11 @@ export function createApp() {
               'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
               'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
               'img-src': ["'self'", 'data:', 'blob:', ...mediaOrigins],
-              'media-src': ["'self'", 'blob:', ...mediaOrigins],
-              'connect-src': ["'self'", ...mediaOrigins],
+              // Approved live-playback hosts are read at request time: an
+              // administrator can add one without a redeploy, and the policy
+              // still names every origin rather than opening media to https:.
+              'media-src': ["'self'", 'blob:', ...mediaOrigins, () => playbackOrigins().join(' ')],
+              'connect-src': ["'self'", ...mediaOrigins, () => playbackOrigins().join(' ')],
               'frame-ancestors': ["'none'"],
               'object-src': ["'none'"],
               'base-uri': ["'self'"],
