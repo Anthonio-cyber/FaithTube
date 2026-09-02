@@ -40,6 +40,25 @@ const STOP_WORDS = new Set([
  * text always comes from the dataset — the AI layer only ever adds commentary
  * around verses that were already retrieved.
  */
+/**
+ * Do two words come from the same root?
+ *
+ * Topic matching used to ask whether either string contained the other, which
+ * quietly answered "yes" to forgiving/giving — so a question about forgiving
+ * someone came back with verses on cheerful giving and the tithe. Sharing a
+ * stem is the thing actually meant: forgiveness and forgive match, anxious and
+ * anxiety match, forgiving and giving do not.
+ *
+ * Short words carry no stem worth comparing, so those must match exactly.
+ */
+function sharesStem(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length < 4 || b.length < 4) return false;
+  let shared = 0;
+  while (shared < a.length && shared < b.length && a[shared] === b[shared]) shared += 1;
+  return shared >= 4;
+}
+
 export async function searchBible(query: string, options: { includeSummary?: boolean } = {}): Promise<BibleSearchResult> {
   const refs = extractScriptureReferences(query);
   let verses: Verse[] = [];
@@ -62,7 +81,7 @@ export async function searchBible(query: string, options: { includeSummary?: boo
 
   if (verses.length < 6) {
     for (const [topic, topicVerses] of TOPIC_INDEX) {
-      if (terms.some((term) => topic.includes(term) || term.includes(topic))) {
+      if (terms.some((term) => sharesStem(term, topic))) {
         matchedTopics.push(topic);
         verses.push(...topicVerses);
       }
