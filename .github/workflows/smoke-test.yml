@@ -1,0 +1,55 @@
+# Checks the live deployment from outside, on demand.
+#
+# Run it from the Actions tab (Run workflow) after changing configuration. It
+# reports what the site actually does rather than what its settings say, which
+# is the difference between "the key is set" and "the key works".
+#
+# Nothing secret is used or printed: every request here is one an ordinary
+# visitor could make.
+name: Smoke test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SITE_URL: ${{ vars.SITE_URL || 'https://faithtube.onrender.com' }}
+    steps:
+      - name: Health
+        run: |
+          curl -sS --max-time 90 --retry 2 --retry-delay 15 --retry-connrefused \
+            "${SITE_URL%/}/api/system/health" | tee /tmp/health.json
+          echo
+          grep -q '"status":"ok"' /tmp/health.json || { echo "::error::Health check failed"; exit 1; }
+
+      - name: Which integrations are actually configured
+        run: |
+          curl -sS --max-time 60 "${SITE_URL%/}/api/system/config" > /tmp/config.json
+          python3 - <<'PY'
+          import json
+          cfg = json.load(open('/tmp/config.json'))
+          for name, on in sorted(cfg.get('features', {}).items()):
+              print(f"  {name:24} {'yes' if on else 'no'}")
+          print(f"  {'moderation provider':24} {cfg.get('moderation', {}).get('provider')}")
+          print(f"  {'max upload':24} {cfg.get('limits', {}).get('maxUploadLabel')}")
+          PY
+
+      - name: The assistant answers, and says who composed it
+        run: |
+          curl -sS --max-time 90 -X POST "${SITE_URL%/}/api/assistant/ask" \
+            -H 'Content-Type: application/json' \
+            -d '{"question":"What does the Bible say about forgiving someone who hurt you?"}' \
+            > /tmp/ask.json
+          python3 - <<'PY'
+          import json
+          a = json.load(open('/tmp/ask.json'))
+          print("  composed by :", a.get('composedBy'))
+          print("  scripture   :", ", ".join(v['reference'] for v in a.get('scripture', [])) or "(none)")
+          print("  videos      :", len(a.get('videos', [])))
+          print("  answer      :", (a.get('answer') or '')[:400])
+          if a.get('composedBy') == 'scripture':
+              print("::warning::The assistant fell back to retrieval — the model call did not succeed.")
+          PY
